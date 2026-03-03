@@ -1,6 +1,12 @@
 import { request } from "../request";
 import type { AgentRequest, AgentsRunningConfig } from "../types";
 
+export interface CurrentPlanResponse {
+  exists: boolean;
+  file_path: string;
+  plan: Record<string, unknown> | null;
+}
+
 // Agent API
 export const agentApi = {
   agentRoot: () => request<unknown>("/agent/"),
@@ -41,4 +47,11 @@ export const agentApi = {
       method: "PUT",
       body: JSON.stringify({ language }),
     }),
+
+  getCurrentPlan: (sessionId: string, userId: string = "default") => {
+    const params = new URLSearchParams();
+    params.set("session_id", sessionId);
+    params.set("user_id", userId || "default");
+    return request<CurrentPlanResponse>(`/agent/current-plan?${params.toString()}`);
+  },
 };
