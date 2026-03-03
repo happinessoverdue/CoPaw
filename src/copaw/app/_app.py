@@ -558,6 +558,8 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
 
     @app.get("/{full_path:path}")
     def _console_spa(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API route not found")
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
             return FileResponse(_CONSOLE_INDEX)
 
