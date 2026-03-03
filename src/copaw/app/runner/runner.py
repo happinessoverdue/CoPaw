@@ -116,6 +116,12 @@ class AgentRunner(Runner):
 
             agent = CoPawAgent(
                 env_context=env_context,
+                env_context_dict={
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "channel": channel,
+                    "working_dir": str(WORKING_DIR),
+                },
                 mcp_clients=mcp_clients,
                 memory_manager=self.memory_manager,
                 max_iters=max_iters,
