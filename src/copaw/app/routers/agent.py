@@ -1,7 +1,15 @@
 # -*- coding: utf-8 -*-
 """Agent file management API."""
 
-from fastapi import APIRouter, Body, HTTPException
+import json
+import mimetypes
+import os
+import re
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ...config import (
@@ -9,10 +17,32 @@ from ...config import (
     save_config,
     AgentsRunningConfig,
 )
+from ...constant import WORKING_DIR
+from ..channels.utils import file_url_to_local_path
 
 from ...agents.memory.agent_md_manager import AGENT_MD_MANAGER
 
+_UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
+
+
+def _sanitize_filename(name: str) -> str:
+    if not name:
+        return "unknown"
+    return _UNSAFE_FILENAME_RE.sub("--", name)
+
+
 router = APIRouter(prefix="/agent", tags=["agent"])
+
+
+class PlanReadResponse(BaseModel):
+    """Current plan content for a session/user."""
+
+    exists: bool = Field(..., description="Whether plan file exists")
+    file_path: str = Field(..., description="Resolved plan file path")
+    plan: dict[str, Any] | None = Field(
+        default=None,
+        description="Parsed plan json content",
+    )
 
 
 class MdFileInfo(BaseModel):
@@ -170,3 +200,81 @@ async def put_agents_running_config(
     config.agents.running = running_config
     save_config(config)
     return running_config
+
+
+@router.get(
+    "/current-plan",
+    response_model=PlanReadResponse,
+    summary="Get current plan",
+    description=(
+        "Read current session plan from "
+        "WORKING_DIR/todos/<user_id>/<session_id>/plan.json"
+    ),
+)
+async def get_current_plan(
+    session_id: str = Query(..., description="Session ID"),
+    user_id: str = Query("default", description="User ID"),
+) -> PlanReadResponse:
+    """Return current plan content for a session/user."""
+    safe_sid = _sanitize_filename(session_id)
+    safe_uid = _sanitize_filename(user_id)
+    plan_path = (
+        Path(WORKING_DIR) / "todos" / safe_uid / safe_sid / "plan.json"
+    )
+
+    if not plan_path.exists():
+        return PlanReadResponse(
+            exists=False,
+            file_path=str(plan_path),
+            plan=None,
+        )
+
+    try:
+        text = plan_path.read_text(encoding="utf-8")
+        plan_json = json.loads(text) if text else None
+        return PlanReadResponse(
+            exists=True,
+            file_path=str(plan_path),
+            plan=plan_json,
+        )
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Invalid plan.json format: {exc}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/download-file",
+    summary="Download file by local path or file URL",
+    description=(
+        "Download a local file by absolute path, plain path, "
+        "or file:// URL."
+    ),
+)
+async def download_file(
+    file_path: str = Query(..., description="Local path or file:// URL"),
+):
+    """Stream a local file to browser download."""
+    local_path = file_url_to_local_path(file_path)
+    if not local_path:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid local file path. "
+            "Expect plain path or file:// URL.",
+        )
+
+    p = Path(local_path).expanduser()
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {p}")
+    if not p.is_file():
+        raise HTTPException(status_code=400, detail=f"Not a file: {p}")
+
+    media_type, _ = mimetypes.guess_type(str(p))
+    return FileResponse(
+        path=str(p),
+        filename=os.path.basename(str(p)),
+        media_type=media_type or "application/octet-stream",
+    )
