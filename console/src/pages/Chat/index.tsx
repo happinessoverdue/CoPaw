@@ -26,6 +26,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import Weather from "./Weather";
+import SendFileRender from "./SendFile";
 import { getApiToken, getApiUrl } from "../../api/config";
 import { providerApi } from "../../api/modules/provider";
 import ModelSelector from "./ModelSelector";
@@ -368,6 +369,7 @@ export default function ChatPage() {
       },
       customToolRenderConfig: {
         "weather search mock": Weather,
+        send_file_to_user: SendFileRender,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
   }, [wrappedSessionApi, customFetch, t]);
