@@ -29,6 +29,8 @@ from .skills_manager import (
 )
 from .tools import (
     browser_use,
+    create_memory_search_tool,
+    create_write_todos_tool,
     desktop_screenshot,
     edit_file,
     execute_shell_command,
@@ -37,7 +39,6 @@ from .tools import (
     read_file,
     send_file_to_user,
     write_file,
-    create_memory_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..agents.memory import MemoryManager
@@ -76,6 +77,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     def __init__(
         self,
         env_context: Optional[str] = None,
+        env_context_dict: Optional[dict[str, Any]] = None,
         enable_memory_manager: bool = True,
         mcp_clients: Optional[List[Any]] = None,
         memory_manager: MemoryManager | None = None,
@@ -103,6 +105,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         self._env_context = env_context
         self._request_context = dict(request_context or {})
+        self._env_context_dict = env_context_dict
         self._max_input_length = max_input_length
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
@@ -188,7 +191,11 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "desktop_screenshot": desktop_screenshot,
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
+<<<<<<< HEAD
             "get_token_usage": get_token_usage,
+=======
+            "write_todos": create_write_todos_tool(self._env_context_dict),
+>>>>>>> 20e243a (feat: add write_todos tool for agent plan management)
         }
 
         # Register only enabled tools
