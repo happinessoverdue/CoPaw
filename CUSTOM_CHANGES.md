@@ -1,7 +1,7 @@
 # CoPaw 定制改造日志
 
-> 记录 `copaw-linxin` 分支相对于官方 `main` 的功能级改造。
-> 只记功能和目的，不记代码细节（代码差异用 `git diff main..copaw-linxin` 查看）。
+> 记录 `ampere` 分支相对于官方 `main` 的功能级改造。
+> 只记功能和目的，不记代码细节（代码差异用 `git diff main..ampere` 查看）。
 
 ---
 
