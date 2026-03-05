@@ -89,3 +89,4 @@ CLAUDE.md
 
 # Build cache
 .cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
+docs/custom/工作规划方案（大纲）.md
