@@ -10,7 +10,7 @@ Usage:
     python prepare.py import [dir] Import images from tar files
     python prepare.py up          Start nginx + admin services
     python prepare.py down        Stop all services
-    python prepare.py restart     Restart all services
+    python prepare.py restart [nginx|admin]  Restart services (default: all)
     python prepare.py status      Show container status
     python prepare.py logs [svc]  Show logs (optionally for a specific service)
 """
@@ -65,7 +65,12 @@ def _build_nginx() -> None:
 
 def _build_admin() -> None:
     print("==> Building admin image: copaw-admin:latest")
-    run(["docker", "build", "-t", "copaw-admin:latest", str(SCRIPT_DIR / "admin-service")])
+    run([
+        "docker", "build",
+        "-f", str(SCRIPT_DIR / "admin-service" / "Dockerfile"),
+        "-t", "copaw-admin:latest",
+        str(SCRIPT_DIR),
+    ])
 
 
 def _build_copaw() -> None:
@@ -185,9 +190,22 @@ def cmd_down() -> None:
     print(green("==> All services stopped."))
 
 
-def cmd_restart() -> None:
-    print("==> Restarting all services ...")
-    run(["docker", "compose", "-f", str(COMPOSE_FILE), "restart"])
+def cmd_restart(services: Optional[List[str]] = None) -> None:
+    """Restart services. If services given, restart only those; else restart all."""
+    valid = {"nginx", "admin"}
+    if services:
+        invalid = [s for s in services if s not in valid]
+        if invalid:
+            print(red(f"ERROR: 未知服务: {', '.join(invalid)}"))
+            print(red(f"  可选: nginx, admin"))
+            sys.exit(1)
+        svc = services
+        print(f"==> Restarting: {', '.join(svc)} ...")
+    else:
+        svc = []
+        print("==> Restarting all services ...")
+    run(["docker", "compose", "-f", str(COMPOSE_FILE), "restart", *svc])
+    print(green("==> Restart complete."))
 
 
 def cmd_status() -> None:
@@ -211,7 +229,7 @@ COMMANDS = {
     "import":  (cmd_import,  "Import images from tar files [images_dir]"),
     "up":      (cmd_up,      "Start nginx + admin services"),
     "down":    (cmd_down,    "Stop all services"),
-    "restart": (cmd_restart, "Restart all services"),
+    "restart": (cmd_restart, "Restart services [nginx|admin] (default: all)"),
     "status":  (cmd_status,  "Show container status"),
     "logs":    (cmd_logs,    "Show logs (optionally for a specific service)"),
 }
@@ -267,7 +285,7 @@ def main() -> None:
         cmd_func(sys.argv[2])
     elif cmd_name == "import" and len(sys.argv) > 2:
         cmd_func(sys.argv[2])
-    elif cmd_name == "build":
+    elif cmd_name in ("build", "restart"):
         cmd_func(sys.argv[2:] if len(sys.argv) > 2 else None)
     else:
         cmd_func()

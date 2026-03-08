@@ -168,8 +168,22 @@ cmd_down() {
 }
 
 cmd_restart() {
-    echo "==> Restarting all services ..."
-    run docker compose -f "${COMPOSE_FILE}" restart
+    local svc=("$@")
+    if [ ${#svc[@]} -gt 0 ]; then
+        for s in "${svc[@]}"; do
+            case "$s" in nginx|admin) ;; *)
+                echo_red "ERROR: 未知服务: ${s}"
+                echo_red "  可选: nginx, admin"
+                exit 1
+                ;;
+            esac
+        done
+        echo "==> Restarting: ${svc[*]} ..."
+    else
+        echo "==> Restarting all services ..."
+    fi
+    run docker compose -f "${COMPOSE_FILE}" restart "${svc[@]}"
+    echo_green "==> Restart complete."
 }
 
 cmd_status() {
@@ -198,7 +212,7 @@ print_help() {
     echo "  import        Import images from tar files [images_dir]"
     echo "  up            Start nginx + admin services"
     echo "  down          Stop all services"
-    echo "  restart       Restart all services"
+    echo "  restart       Restart services [nginx|admin] (default: all)"
     echo "  status        Show container status"
     echo "  logs          Show logs (optionally for a specific service)"
     echo
@@ -256,7 +270,7 @@ main() {
             cmd_down
             ;;
         restart)
-            cmd_restart
+            cmd_restart "$@"
             ;;
         status)
             cmd_status

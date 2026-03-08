@@ -10,11 +10,13 @@ import hmac
 import json
 import logging
 import os
+import shutil
 import time
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 import db
 import docker_manager as dm
@@ -24,12 +26,16 @@ logger = logging.getLogger("copaw-admin")
 
 app = FastAPI(title="CoPaw Admin Service")
 
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+if STATIC_DIR.is_dir():
+    app.mount("/admin/static", StaticFiles(directory=str(STATIC_DIR)), name="admin-static")
+
 # ---------------------------------------------------------------------------
 # Configuration from environment
 # ---------------------------------------------------------------------------
 
-LOGIN_HTML = Path(os.environ.get("LOGIN_HTML", "/app/login.html"))
-ADMIN_HTML = Path(os.environ.get("ADMIN_HTML", "/app/admin.html"))
+LOGIN_HTML = Path(os.environ.get("LOGIN_HTML", "/app/admin-service/login.html"))
+ADMIN_HTML = Path(os.environ.get("ADMIN_HTML", "/app/admin-service/admin.html"))
 COOKIE_SECRET = os.environ.get("COOKIE_SECRET", "CHANGE_ME_TO_A_RANDOM_STRING")
 COOKIE_NAME = "copaw_instance"
 COOKIE_MAX_AGE = int(os.environ.get("COOKIE_MAX_AGE", "86400"))
@@ -42,8 +48,12 @@ COPAW_IMAGE = os.environ.get("COPAW_IMAGE", "copaw-ampere:latest")
 BASE_DATA_DIR = os.environ.get("BASE_DATA_DIR", "/data/copaw")
 COPAW_INTERNAL_PORT = int(os.environ.get("COPAW_INTERNAL_PORT", "8088"))
 DOCKER_NETWORK = os.environ.get("DOCKER_NETWORK", "copaw-multi-tenant-service_copaw-net")
-
 INSTANCE_PREFIX = "copaw-instance-"
+
+# 分发功能：模板目录与租户目录（admin 容器内路径）
+TEMPLATES_DIR = os.environ.get("TEMPLATES_DIR", "templates")
+TEMPLATES_ROOT = Path("/app/data") / TEMPLATES_DIR
+TENANTS_ROOT = Path("/app/tenants")
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +356,57 @@ async def api_list_tenants(request: Request):
     return {"tenants": result}
 
 
+@app.get("/admin/api/tenants/{user_id}")
+async def api_get_tenant(user_id: str, request: Request):
+    """Get full tenant details for edit form.
+    Returns instance_info (actual running container) and instance_config (DB record).
+    """
+    denied = _require_admin(request)
+    if denied:
+        return denied
+
+    tenant = db.get_tenant(user_id)
+    if not tenant:
+        return JSONResponse({"error": f"租户 '{user_id}' 不存在"}, status_code=404)
+
+    # 优先使用数据库中的值，否则按约定计算
+    container_name = tenant.get("container_name") or f"{INSTANCE_PREFIX}{user_id}"
+    default_mounts = tenant.get("default_mounts") or [
+        {"host": f"{BASE_DATA_DIR}/{user_id}/working", "bind": "/app/working", "mode": "rw"},
+        {"host": f"{BASE_DATA_DIR}/{user_id}/working.secret", "bind": "/app/working.secret", "mode": "rw"},
+    ]
+    default_mount_host = default_mounts[0].get("host", "") if default_mounts else ""
+    extra_mounts = tenant.get("extra_mounts", [])
+
+    # 实例信息：从实际运行的容器获取
+    runtime = dm.get_container_runtime_config(container_name)
+    instance_info = {"running": runtime is not None}
+    if runtime:
+        instance_info["container_name"] = runtime["container_name"]
+        instance_info["mounts"] = runtime["mounts"]
+    else:
+        instance_info["container_name"] = None
+        instance_info["mounts"] = []
+
+    # 实例配置：数据库记录
+    instance_config = {
+        "container_name": container_name,
+        "default_mounts": default_mounts,
+        "extra_mounts": extra_mounts,
+    }
+
+    return {
+        "user_id": tenant["user_id"],
+        "user_name": tenant["user_name"],
+        "password": tenant.get("password", ""),
+        "env": tenant.get("env", {}),
+        "instance_info": instance_info,
+        "instance_config": instance_config,
+        "extra_mounts": extra_mounts,
+        "default_mount_host": default_mount_host,
+    }
+
+
 @app.post("/admin/api/tenants")
 async def api_add_tenant(request: Request):
     denied = _require_admin(request)
@@ -353,12 +414,18 @@ async def api_add_tenant(request: Request):
         return denied
 
     body = await request.json()
-    uid = body.get("user_id", "")
+    uid = body.get("user_id", "").strip()
     uname = body.get("user_name", "")
     pw = body.get("password", "")
     env = body.get("env")
+    extra_mounts = body.get("extra_mounts")
+    container_name = f"{INSTANCE_PREFIX}{uid}"
+    default_mounts = [
+        {"host": f"{BASE_DATA_DIR}/{uid}/working", "bind": "/app/working", "mode": "rw"},
+        {"host": f"{BASE_DATA_DIR}/{uid}/working.secret", "bind": "/app/working.secret", "mode": "rw"},
+    ]
 
-    ok, msg = db.add_tenant(uid, uname, pw, env)
+    ok, msg = db.add_tenant(uid, uname, pw, env, extra_mounts, container_name=container_name, default_mounts=default_mounts)
     if ok:
         return {"ok": True, "message": f"租户 '{uid}' 创建成功"}
     return JSONResponse({"ok": False, "message": msg}, status_code=400)
@@ -376,6 +443,7 @@ async def api_update_tenant(user_id: str, request: Request):
         user_name=body.get("user_name"),
         password=body.get("password"),
         env=body.get("env"),
+        extra_mounts=body.get("extra_mounts") if "extra_mounts" in body else None,
     )
     if ok:
         return {"ok": True, "message": f"租户 '{user_id}' 更新成功"}
@@ -436,14 +504,18 @@ async def api_start_container(user_id: str, request: Request):
     env = {"COPAW_PORT": str(COPAW_INTERNAL_PORT)}
     if tenant.get("env"):
         env.update(tenant["env"])
+    extra_mounts = tenant.get("extra_mounts") or []
 
     ok, msg = dm.create_and_start_container(
         container_name=container_name,
         image=COPAW_IMAGE,
-        data_dir=f"{BASE_DATA_DIR}/{user_id}",
+        data_dir=f"{BASE_DATA_DIR}/{user_id}/working",
         port=COPAW_INTERNAL_PORT,
         network=DOCKER_NETWORK,
         env=env,
+        extra_volumes=extra_mounts,
+        force_recreate=True,
+        secret_dir=f"{BASE_DATA_DIR}/{user_id}/working.secret",
     )
     if ok:
         return {"ok": True, "message": f"容器 '{container_name}' 已启动"}
@@ -465,14 +537,51 @@ async def api_stop_container(user_id: str, request: Request):
 
 @app.post("/admin/api/containers/{user_id}/restart")
 async def api_restart_container(user_id: str, request: Request):
+    """Restart container. Recreates container to apply latest config (env, extra_mounts)."""
+    denied = _require_admin(request)
+    if denied:
+        return denied
+
+    tenant = db.get_tenant(user_id)
+    if not tenant:
+        return JSONResponse({"ok": False, "message": f"租户 '{user_id}' 不存在"}, status_code=404)
+
+    container_name = f"{INSTANCE_PREFIX}{user_id}"
+    env = {"COPAW_PORT": str(COPAW_INTERNAL_PORT)}
+    if tenant.get("env"):
+        env.update(tenant["env"])
+    extra_mounts = tenant.get("extra_mounts") or []
+
+    ok, msg = dm.create_and_start_container(
+        container_name=container_name,
+        image=COPAW_IMAGE,
+        data_dir=f"{BASE_DATA_DIR}/{user_id}/working",
+        port=COPAW_INTERNAL_PORT,
+        network=DOCKER_NETWORK,
+        env=env,
+        extra_volumes=extra_mounts,
+        force_recreate=True,
+        secret_dir=f"{BASE_DATA_DIR}/{user_id}/working.secret",
+    )
+    if ok:
+        return {"ok": True, "message": f"容器 '{container_name}' 已重启"}
+    return JSONResponse({"ok": False, "message": msg}, status_code=400)
+
+
+@app.post("/admin/api/containers/{user_id}/remove")
+async def api_remove_container(user_id: str, request: Request):
+    """Remove container only (does not delete tenant). Container must be stopped first."""
     denied = _require_admin(request)
     if denied:
         return denied
 
     container_name = f"{INSTANCE_PREFIX}{user_id}"
-    ok, msg = dm.restart_container(container_name)
+    ok, msg = dm.stop_container(container_name)
+    if not ok:
+        return JSONResponse({"ok": False, "message": msg}, status_code=400)
+    ok, msg = dm.remove_container(container_name)
     if ok:
-        return {"ok": True, "message": f"容器 '{container_name}' 已重启"}
+        return {"ok": True, "message": f"容器 '{container_name}' 已删除"}
     return JSONResponse({"ok": False, "message": msg}, status_code=400)
 
 
@@ -516,13 +625,146 @@ async def api_batch_containers(request: Request):
             env = {"COPAW_PORT": str(COPAW_INTERNAL_PORT)}
             if tenant.get("env"):
                 env.update(tenant["env"])
+            extra_mounts = tenant.get("extra_mounts") or []
             ok, msg = dm.create_and_start_container(
                 container_name=container_name, image=COPAW_IMAGE,
-                data_dir=f"{BASE_DATA_DIR}/{uid}", port=COPAW_INTERNAL_PORT,
-                network=DOCKER_NETWORK, env=env,
+                data_dir=f"{BASE_DATA_DIR}/{uid}/working", port=COPAW_INTERNAL_PORT,
+                network=DOCKER_NETWORK, env=env, extra_volumes=extra_mounts,
+                secret_dir=f"{BASE_DATA_DIR}/{uid}/working.secret",
             )
         else:
             ok, msg = dm.stop_container(container_name)
         results.append({"user_id": uid, "ok": ok, "message": msg})
+
+    return {"ok": True, "results": results}
+
+
+# ===================================================================
+# PART 6: Admin API — Template Distribution
+# ===================================================================
+
+
+def _build_tree_node(p: Path, rel_path: str) -> dict:
+    """递归构建目录树节点，path 为相对于 TEMPLATES_ROOT 的路径。"""
+    name = p.name or TEMPLATES_DIR
+    is_dir = p.is_dir()
+    node = {"name": name, "path": rel_path, "is_dir": is_dir}
+    if is_dir:
+        node["children"] = []
+        for child in sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            child_rel = f"{rel_path}/{child.name}" if rel_path else child.name
+            node["children"].append(_build_tree_node(child, child_rel))
+    return node
+
+
+def _is_path_safe(rel_path: str) -> bool:
+    """校验相对路径在模板根内，禁止 .. 等穿越。"""
+    if not rel_path:
+        return True
+    parts = Path(rel_path).parts
+    if ".." in parts or rel_path.startswith("/"):
+        return False
+    resolved = (TEMPLATES_ROOT / rel_path).resolve()
+    return str(resolved).startswith(str(TEMPLATES_ROOT.resolve()))
+
+
+def _expand_paths(paths: list[str]) -> list[str]:
+    """将选中的路径展开为所有要复制的项（勾选目录则递归包含其下所有内容）。"""
+    seen = set()
+    result = []
+    for rel in paths:
+        if not rel or rel in seen:
+            continue
+        full = TEMPLATES_ROOT / rel
+        if not full.exists():
+            continue
+        if full.is_file():
+            if rel not in seen:
+                seen.add(rel)
+                result.append(rel)
+        else:
+            for f in full.rglob("*"):
+                if f.is_file():
+                    r = str(f.relative_to(TEMPLATES_ROOT)).replace("\\", "/")
+                    if r not in seen:
+                        seen.add(r)
+                        result.append(r)
+    return result
+
+
+@app.get("/admin/api/templates/tree")
+async def api_templates_tree(request: Request):
+    """获取模板目录完整树结构，一次性返回。"""
+    denied = _require_admin(request)
+    if denied:
+        return denied
+
+    if not TEMPLATES_ROOT.is_dir():
+        return {"ok": False, "error": f"模板目录不存在: {TEMPLATES_ROOT}", "tree": None}
+
+    root_node = _build_tree_node(TEMPLATES_ROOT, "")
+    return {"ok": True, "tree": root_node}
+
+
+@app.post("/admin/api/distribute")
+async def api_distribute(request: Request):
+    """将选中的模板文件/目录分发到各租户。勾选目录即递归包含其下所有内容，覆盖已存在文件。"""
+    denied = _require_admin(request)
+    if denied:
+        return denied
+
+    body = await request.json()
+    tenant_ids = body.get("tenant_ids", [])
+    paths = body.get("paths", [])
+
+    if not tenant_ids:
+        return JSONResponse({"ok": False, "message": "tenant_ids 不能为空"}, status_code=400)
+    if not paths:
+        return JSONResponse({"ok": False, "message": "请至少选择一个文件或目录"}, status_code=400)
+
+    # 校验路径安全
+    for p in paths:
+        if not _is_path_safe(p):
+            return JSONResponse({"ok": False, "message": f"非法路径: {p}"}, status_code=400)
+
+    # 校验租户存在
+    all_tenants = {t["user_id"]: t for t in db.get_all_tenants()}
+    for uid in tenant_ids:
+        if uid not in all_tenants:
+            return JSONResponse({"ok": False, "message": f"租户 '{uid}' 不存在"}, status_code=400)
+
+    # 展开路径（目录 → 其下所有文件）
+    expanded = _expand_paths(paths)
+    if not expanded:
+        return JSONResponse({"ok": False, "message": "选中的路径中无有效文件"}, status_code=400)
+
+    results = []
+    for uid in tenant_ids:
+        tenant_dir = TENANTS_ROOT / uid
+        tenant_dir.mkdir(parents=True, exist_ok=True)
+        ok_count, fail_count = 0, 0
+        err_msg = ""
+        for rel in expanded:
+            src = TEMPLATES_ROOT / rel
+            dst = tenant_dir / rel
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if src.is_file():
+                    shutil.copy2(src, dst)
+                    ok_count += 1
+                else:
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                    ok_count += 1
+            except Exception as e:
+                fail_count += 1
+                err_msg = str(e)
+                logger.warning("Distribute failed %s -> %s: %s", src, dst, e)
+        results.append({
+            "user_id": uid,
+            "ok": fail_count == 0,
+            "ok_count": ok_count,
+            "fail_count": fail_count,
+            "message": err_msg or f"已分发 {ok_count} 项",
+        })
 
     return {"ok": True, "results": results}

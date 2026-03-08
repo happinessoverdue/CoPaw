@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CoPaw 租户管理</title>
+<link rel="stylesheet" href="/admin/static/jstree-default-style.min.css">
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -23,13 +24,13 @@
   }
   .topbar h1 { font-size: 1.125rem; font-weight: 600; color: #f1f5f9; }
   .topbar-right { display: flex; align-items: center; gap: 1rem; }
-  .topbar-right span { font-size: 0.8125rem; color: #94a3b8; }
+  .topbar-right span { font-size: 0.8125rem; color: #fff; font-weight: 700; }
   .topbar-right a {
-    font-size: 0.8125rem; color: #94a3b8; text-decoration: none;
-    padding: 0.375rem 0.75rem; border: 1px solid #475569; border-radius: 6px;
-    transition: all 0.15s;
+    font-size: 0.8125rem; color: #fff; text-decoration: none;
+    padding: 0.375rem 0.75rem; border: 1px solid transparent; border-radius: 6px;
+    background: #7f1d1d; transition: all 0.15s;
   }
-  .topbar-right a:hover { color: #e2e8f0; border-color: #64748b; }
+  .topbar-right a:hover { background: #ef4444; }
 
   /* ---- Main content ---- */
   .main { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
@@ -41,19 +42,35 @@
   .btn {
     display: inline-flex; align-items: center; gap: 0.375rem;
     padding: 0.5rem 0.875rem; font-size: 0.8125rem; font-weight: 500;
-    border: 1px solid #475569; border-radius: 6px; cursor: pointer;
-    background: #1e293b; color: #e2e8f0; transition: all 0.15s;
-    white-space: nowrap;
+    border-radius: 6px; cursor: pointer; transition: all 0.15s;
+    white-space: nowrap; border: 1px solid #475569;
+    background: #334155; color: #e2e8f0;
   }
-  .btn:hover { background: #334155; border-color: #64748b; }
-  .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
-  .btn-primary:hover { background: #2563eb; }
-  .btn-success { background: #22c55e; border-color: #22c55e; color: #fff; }
-  .btn-success:hover { background: #16a34a; }
-  .btn-danger { background: #ef4444; border-color: #ef4444; color: #fff; }
-  .btn-danger:hover { background: #dc2626; }
+  .btn:hover { background: #475569; border-color: #64748b; }
+  .btn:disabled {
+    background: #475569 !important; border-color: #64748b !important;
+    color: #94a3b8 !important; cursor: not-allowed; opacity: 1;
+  }
+  .btn:disabled:hover { background: #475569 !important; }
+  .btn-blue, .btn-primary { background: #1e3a8a; border-color: #1e3a8a; color: #fff; }
+  .btn-blue:hover, .btn-primary:hover { background: #2563eb; border-color: #2563eb; }
+  .btn-success { background: #14532d; border-color: #14532d; color: #fff; }
+  .btn-success:hover { background: #16a34a; border-color: #16a34a; }
+  .btn-danger { background: #7f1d1d; border-color: #7f1d1d; color: #fff; }
+  .btn-danger:hover { background: #dc2626; border-color: #dc2626; }
+  .btn-purple { background: #581c87; border-color: #581c87; color: #fff; }
+  .btn-purple:hover { background: #7c3aed; border-color: #7c3aed; }
+  .btn-neutral { background: #334155; border-color: #475569; color: #e2e8f0 !important; }
+  .btn-neutral:hover { background: #475569; border-color: #64748b; }
   .btn-sm { padding: 0.3125rem 0.625rem; font-size: 0.75rem; }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-loading { pointer-events: none; }
+  .btn-spinner {
+    display: inline-block; width: 1em; height: 1em;
+    border: 2px solid currentColor; border-right-color: transparent;
+    border-radius: 50%; animation: btn-spin 0.6s linear infinite;
+    vertical-align: -0.15em; flex-shrink: 0;
+  }
+  @keyframes btn-spin { to { transform: rotate(360deg); } }
   .toolbar-spacer { flex: 1; }
   .auto-refresh-label { font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; gap: 0.375rem; }
   .auto-refresh-label input { accent-color: #3b82f6; }
@@ -93,7 +110,7 @@
   .modal-overlay.active { display: flex; }
   .modal {
     background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-    padding: 1.5rem; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+    padding: 1.5rem; width: 100%; max-width: 720px; max-height: 90vh; overflow-y: auto;
     box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
   }
   .modal h2 { font-size: 1.125rem; font-weight: 600; margin-bottom: 1rem; color: #f1f5f9; }
@@ -112,6 +129,67 @@
   }
   .form-group textarea { min-height: 100px; resize: vertical; }
   .form-group .hint { font-size: 0.75rem; color: #64748b; margin-top: 0.25rem; }
+  .form-group.info-group .info-block {
+    padding: 0.75rem; background: rgba(15,23,42,0.6); border: 1px solid rgba(100,116,139,0.4);
+    border-radius: 6px; font-size: 0.8125rem;
+  }
+  .form-group.info-group .info-row { margin-bottom: 0.5rem; }
+  .form-group.info-group .info-row:last-child { margin-bottom: 0; }
+  .form-group.info-group .info-label { color: #94a3b8; margin-right: 0.5rem; flex-shrink: 0; }
+  .form-group.info-group .info-row { display: flex; align-items: flex-start; gap: 0.5rem; }
+  .form-group.info-group .info-row code {
+    color: #94a3b8; font-size: 0.8125rem; overflow-x: auto; white-space: nowrap;
+    flex: 1; min-width: 0; display: block;
+  }
+  .form-group.info-group .info-row ul { margin: 0; padding-left: 1.25rem; color: #94a3b8; font-size: 0.8125rem; }
+  .form-group input:disabled, .form-group input[readonly] { color: #94a3b8 !important; }
+  .form-group.info-group .info-mounts { flex: 1; min-width: 0; }
+  .form-group .label-with-status { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+  .instance-status { display: inline-flex; align-items: center; gap: 0.375rem; font-size: 0.8125rem; }
+  .instance-status-running { color: #4ade80; }
+  .instance-status-stopped { color: #f87171; }
+  .instance-status-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .instance-status-dot.running { background: #4ade80; box-shadow: 0 0 6px rgba(74,222,128,0.5); }
+  .instance-status-dot.stopped { background: #f87171; }
+  .input-readonly {
+    width: 100%; padding: 0.5rem 0.75rem; font-size: 0.875rem; color: #94a3b8 !important;
+    background: rgba(15,23,42,0.5); border: 1px solid rgba(100,116,139,0.3);
+    border-radius: 6px; cursor: not-allowed;
+  }
+  .mount-row.mount-row-fixed { opacity: 0.95; background: rgba(15,23,42,0.4); }
+  .mount-row.mount-row-fixed input, .mount-row.mount-row-fixed select {
+    cursor: not-allowed; color: #94a3b8 !important;
+  }
+  /* ---- Extra mounts list ---- */
+  .mounts-list { display: flex; flex-direction: column; padding: 0.2rem 0.4rem; background: rgba(15,23,42,0.5); border: 1px solid rgba(100,116,139,0.3);border-radius: 6px; }
+  .mount-row {
+    display: flex; 
+    align-items: center; 
+    gap: 0.5rem; 
+    padding-bottom: 0.2rem;
+    padding-top: 0.2rem;
+    flex-wrap: wrap;
+    border-radius: 6px;
+  }
+  .mount-row input {
+    flex: 1; min-width: 120px; padding: 0.375rem 0.5rem; font-size: 0.8125rem;
+    background: rgba(15,23,42,0.6); border: 1px solid rgba(100,116,139,0.4);
+    color: #e2e8f0; border-radius: 4px; outline: none; font-family: inherit;
+  }
+  .mount-row input:focus { border-color: #3b82f6; }
+  .mount-row input::placeholder { color: #64748b; }
+  .mount-row .mount-arrow { color: #64748b; font-size: 0.8125rem; flex-shrink: 0; }
+  .mount-row select {
+    padding: 0.375rem 0.5rem; font-size: 0.8125rem; min-width: 5.5rem;
+    background: rgba(15,23,42,0.6); border: 1px solid rgba(100,116,139,0.4); color: #e2e8f0;
+    border-radius: 4px; cursor: pointer;
+  }
+  .mount-row .btn-remove {
+    padding: 0.25rem 0.5rem; font-size: 1rem; line-height: 1;
+    color: #f87171; border-color: rgba(248,113,113,0.4); flex-shrink: 0;
+  }
+  .mount-row .btn-remove:hover { background: rgba(248,113,113,0.15); }
+  .mounts-add-btn { margin-top: 0.25rem; }
   .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem; }
 
   /* ---- Log panel ---- */
@@ -150,7 +228,18 @@
   /* ---- Misc ---- */
   .checkbox-cell { width: 2.5rem; text-align: center; }
   .checkbox-cell input { accent-color: #3b82f6; cursor: pointer; }
-  .loading { text-align: center; padding: 2rem; color: #64748b; }
+
+  /* ---- Distribute tree (jsTree) ---- */
+  .dist-tree-wrap {
+    max-height: 60vh; overflow-y: auto; padding: 0.5rem;
+    background: rgba(15,23,42,0.6); border: 1px solid rgba(100,116,139,0.4);
+    border-radius: 6px;
+  }
+  .dist-tree-wrap .jstree-default { background: transparent; }
+  .dist-tree-wrap .jstree-default .jstree-anchor { color: #e2e8f0; }
+  .dist-tree-wrap .jstree-default .jstree-hovered { background: rgba(100,116,139,0.3); border-radius: 4px; box-shadow: none; }
+  .dist-tree-wrap .jstree-default .jstree-clicked { background: rgba(59,130,246,0.2); border-radius: 4px; box-shadow: none; }
+  .distribute-selected-hint { font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.5rem; }
 </style>
 </head>
 <body>
@@ -169,16 +258,17 @@
 
   <!-- Toolbar -->
   <div class="toolbar">
-    <button class="btn btn-primary" onclick="showAddModal()">+ 新增租户</button>
-    <button class="btn" onclick="showImportModal()">导入 JSON</button>
-    <button class="btn btn-success" onclick="batchAction('start')">批量启动</button>
-    <button class="btn btn-danger" onclick="batchAction('stop')">批量停止</button>
+    <button class="btn btn-blue" onclick="showAddModal()">+ 新增租户</button>
+    <button class="btn btn-blue" onclick="showImportModal()">导入 JSON</button>
+    <button class="btn btn-success" id="btnBatchStart" onclick="batchAction(this,'start')">批量启动</button>
+    <button class="btn btn-danger" id="btnBatchStop" onclick="batchAction(this,'stop')">批量停止</button>
+    <button class="btn btn-blue" id="btnDistribute" onclick="showDistributeModal()">批量分发</button>
     <div class="toolbar-spacer"></div>
     <label class="auto-refresh-label">
       <input type="checkbox" id="autoRefresh" checked onchange="toggleAutoRefresh()">
       自动刷新 (5s)
     </label>
-    <button class="btn" onclick="loadTenants()">刷新</button>
+    <button class="btn btn-success" onclick="loadTenants()">刷新</button>
   </div>
 
   <!-- Tenant Table -->
@@ -230,6 +320,43 @@
     <div class="form-group">
       <label for="formPassword">密码</label>
       <input type="text" id="formPassword" placeholder="登录密码">
+      <div class="hint" id="formPasswordHint">编辑时留空则保持不变</div>
+    </div>
+    <div class="form-group info-group" id="formInstanceInfoGroup" style="display:none">
+      <div class="label-with-status">
+        <label style="margin-bottom:0">实例信息</label>
+        <span id="formInstanceStatus" class="instance-status"></span>
+      </div>
+      <div class="info-block" id="formInstanceInfoBlock" style="margin-top:0.5rem">
+        <div class="info-row"><span class="info-label">容器名</span><code id="formRuntimeContainerName">-</code></div>
+        <div class="info-row"><span class="info-label">挂载</span><div id="formRuntimeMounts" class="info-mounts"></div></div>
+      </div>
+    </div>
+    <div class="form-group" id="formInstanceConfigGroup" style="display:none">
+      <label>实例配置 (数据库记录)</label>
+      <div style="margin-bottom:0.75rem">
+        <!-- <label style="font-size:0.75rem;color:#94a3b8;margin-bottom:0.25rem;display:block">容器名</label> -->
+        <input type="text" id="formDbContainerName" class="input-readonly" readonly>
+        <div id="mountsListDefault" class="mounts-list"></div>
+
+      </div>
+      <!-- <div style="margin-bottom:0.75rem">
+        <label style="font-size:0.75rem;color:#94a3b8;margin-bottom:0.25rem;display:block">挂载路径</label>
+        <div id="mountsListDefault" class="mounts-list"></div>
+      </div> -->
+      <!-- <label style="margin-top:0.5rem;display:block">挂载</label> -->
+      <div style="margin-top:0.5rem">
+        <label style="font-size:0.75rem;color:#94a3b8;margin-bottom:0.25rem;display:block">自定义挂载(可选)</label>
+        <div id="mountsList" class="mounts-list"></div>
+        <button type="button" class="btn btn-sm mounts-add-btn" onclick="addMountRow()">+ 添加挂载</button>
+      </div>
+      <div class="hint">宿主机路径 → 容器路径，rw 读写 / ro 只读。留空则不挂载，修改后需重启容器生效</div>
+    </div>
+    <div class="form-group" id="formMountsGroupAdd">
+      <label>自定义挂载 (可选)</label>
+      <div id="mountsListAdd" class="mounts-list"></div>
+      <button type="button" class="btn btn-sm mounts-add-btn" onclick="addMountRowForAdd()">+ 添加挂载</button>
+      <div class="hint">宿主机路径 → 容器路径，rw 读写 / ro 只读。留空则不挂载，修改后需重启容器生效</div>
     </div>
     <div class="form-group">
       <label for="formEnv">环境变量 (JSON, 可选)</label>
@@ -253,15 +380,32 @@
     </div>
     <div class="form-group">
       <label for="importText">或直接粘贴 JSON 内容</label>
-      <textarea id="importText" rows="8" placeholder='[
-  {"user_id": "zhangsan", "user_name": "张三", "password": "xxx"},
-  {"user_id": "lisi", "user_name": "李四", "password": "xxx"}
-]'></textarea>
+      <textarea id="importText" rows="16"></textarea>
       <div class="hint">JSON 数组，每项需包含 user_id、user_name、password 字段</div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('importModal')">取消</button>
       <button class="btn btn-primary" onclick="submitImport()">导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- Distribute Modal -->
+<div class="modal-overlay" id="distributeModal">
+  <div class="modal" style="max-width:900px; width:90%">
+    <h2>分发文件到选中租户</h2>
+    <div class="form-group">
+      <div id="distributeTenantsHint" class="distribute-selected-hint">已选租户: -</div>
+    </div>
+    <div class="form-group">
+      <label>选择要分发的文件或目录（勾选目录即包含其下所有内容）</label>
+      <div class="dist-tree-wrap">
+        <div id="distributeTree"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('distributeModal')">取消</button>
+      <button class="btn btn-primary" id="btnDistributeConfirm" onclick="submitDistribute()">确认分发</button>
     </div>
   </div>
 </div>
@@ -278,6 +422,8 @@
   </div>
 </div>
 
+<script src="/admin/static/jquery-3.7.1.min.js"></script>
+<script src="/admin/static/jstree.min.js"></script>
 <script>
 const API = '/admin/api';
 let autoRefreshTimer = null;
@@ -294,11 +440,32 @@ async function apiFetch(path, opts = {}) {
     window.location.href = '/admin/login';
     return null;
   }
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { error: data.detail || data.message || `请求失败 (${res.status})` };
+  }
+  return data;
 }
 
 // ---- Toast ----
 
+// ---- Button loading state ----
+function setButtonLoading(btn, loading, loadingText) {
+  if (!btn) return;
+  if (loading) {
+    btn.disabled = true;
+    btn.dataset.originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="btn-spinner"></span> ' + (loadingText || '执行中...');
+    btn.classList.add('btn-loading');
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = btn.dataset.originalHtml || btn.innerHTML;
+    btn.classList.remove('btn-loading');
+    delete btn.dataset.originalHtml;
+  }
+}
+
+// ---- Toast ----
 function toast(message, type = 'info') {
   const c = document.getElementById('toastContainer');
   const el = document.createElement('div');
@@ -329,14 +496,17 @@ function statusBadge(status) {
 
 function renderTable() {
   const tbody = document.getElementById('tenantBody');
+  const savedIds = getSelectedIds();
   if (tenantsData.length === 0) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="6">暂无租户，点击「+ 新增租户」开始</td></tr>';
+    updateBatchButtonsState();
     return;
   }
   tbody.innerHTML = tenantsData.map(t => {
     const cs = t.container || {};
     const st = cs.status || 'not_found';
     const isRunning = st === 'running';
+    const hasContainer = st !== 'not_found';  // 容器已存在(含已停止)
     return `<tr>
       <td class="checkbox-cell"><input type="checkbox" class="tenant-cb" value="${t.user_id}"></td>
       <td><strong>${esc(t.user_id)}</strong></td>
@@ -345,15 +515,26 @@ function renderTable() {
       <td><span class="running-for">${cs.running_for || '-'}</span></td>
       <td class="actions">
         ${isRunning
-          ? `<button class="btn btn-sm btn-danger" onclick="containerAction('${t.user_id}','stop')">停止</button>
-             <button class="btn btn-sm" onclick="containerAction('${t.user_id}','restart')">重启</button>
-             <button class="btn btn-sm" onclick="showLogs('${t.user_id}')">日志</button>`
-          : `<button class="btn btn-sm btn-success" onclick="containerAction('${t.user_id}','start')">启动</button>`}
-        <button class="btn btn-sm" onclick="showEditModal('${t.user_id}')">编辑</button>
-        ${!isRunning ? `<button class="btn btn-sm btn-danger" onclick="confirmDelete('${t.user_id}')">删除</button>` : ''}
+          ? `<button class="btn btn-sm btn-danger" onclick="containerAction(this,'${t.user_id}','stop')">停止</button>
+             <button class="btn btn-sm btn-purple" onclick="containerAction(this,'${t.user_id}','restart')">重启</button>
+             <button class="btn btn-sm btn-blue" onclick="showLogs('${t.user_id}')">日志</button>`
+          : `<button class="btn btn-sm btn-success" onclick="containerAction(this,'${t.user_id}','start')">启动</button>
+             ${hasContainer ? `<button class="btn btn-sm btn-danger" onclick="confirmRemoveContainer('${t.user_id}')">删除容器</button>` : ''}`}
+        <button class="btn btn-sm btn-blue" onclick="showEditModal('${t.user_id}')">编辑</button>
+        ${!isRunning ? `<button class="btn btn-sm btn-danger" onclick="confirmDelete('${t.user_id}')">删除租户</button>` : ''}
       </td>
     </tr>`;
   }).join('');
+  const savedSet = new Set(savedIds);
+  tbody.querySelectorAll('.tenant-cb').forEach(cb => {
+    if (savedSet.has(cb.value)) cb.checked = true;
+  });
+  const selectAllEl = document.getElementById('selectAll');
+  const total = document.querySelectorAll('.tenant-cb').length;
+  const checked = document.querySelectorAll('.tenant-cb:checked').length;
+  selectAllEl.checked = total > 0 && checked === total;
+  selectAllEl.indeterminate = checked > 0 && checked < total;
+  updateBatchButtonsState();
 }
 
 function esc(s) {
@@ -386,10 +567,19 @@ function stopAutoRefresh() {
 function toggleSelectAll() {
   const checked = document.getElementById('selectAll').checked;
   document.querySelectorAll('.tenant-cb').forEach(cb => cb.checked = checked);
+  updateBatchButtonsState();
 }
 
 function getSelectedIds() {
   return Array.from(document.querySelectorAll('.tenant-cb:checked')).map(cb => cb.value);
+}
+
+function updateBatchButtonsState() {
+  const n = getSelectedIds().length;
+  ['btnBatchStart', 'btnBatchStop', 'btnDistribute'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = n === 0;
+  });
 }
 
 // ---- Modal helpers ----
@@ -406,23 +596,163 @@ function showAddModal() {
   document.getElementById('formUserId').disabled = false;
   document.getElementById('formUserName').value = '';
   document.getElementById('formPassword').value = '';
+  document.getElementById('formPassword').placeholder = '登录密码';
+  document.getElementById('formPasswordHint').textContent = '必填';
+  document.getElementById('formInstanceInfoGroup').style.display = 'none';
+  document.getElementById('formInstanceConfigGroup').style.display = 'none';
+  document.getElementById('formMountsGroupAdd').style.display = 'block';
+  renderMountsListAdd([]);
   document.getElementById('formEnv').value = '';
   showModal('tenantModal');
 }
 
 // ---- Edit tenant ----
 
-function showEditModal(userId) {
-  const t = tenantsData.find(x => x.user_id === userId);
-  if (!t) return;
+async function showEditModal(userId) {
+  const data = await apiFetch(`/tenants/${userId}`);
+  if (!data || data.error) {
+    toast(data?.error || '获取租户信息失败。请确认已重启 admin 容器使新接口生效。', 'error');
+    return;
+  }
   document.getElementById('modalTitle').textContent = '编辑租户';
   document.getElementById('modalMode').value = 'edit';
-  document.getElementById('formUserId').value = t.user_id;
+  document.getElementById('formUserId').value = data.user_id;
   document.getElementById('formUserId').disabled = true;
-  document.getElementById('formUserName').value = t.user_name;
-  document.getElementById('formPassword').value = '';
-  document.getElementById('formEnv').value = (t.env && Object.keys(t.env).length) ? JSON.stringify(t.env, null, 2) : '';
+  document.getElementById('formUserName').value = data.user_name || '';
+  document.getElementById('formPassword').value = data.password || '';
+  document.getElementById('formPassword').placeholder = '留空则保持不变';
+  document.getElementById('formPasswordHint').textContent = '当前密码已显示，修改后保存即可更新';
+  document.getElementById('formInstanceInfoGroup').style.display = 'block';
+  document.getElementById('formInstanceConfigGroup').style.display = 'block';
+  document.getElementById('formMountsGroupAdd').style.display = 'none';
+  var ii = data.instance_info || {};
+  var ic = data.instance_config || {};
+  var statusEl = document.getElementById('formInstanceStatus');
+  if (ii.running) {
+    statusEl.className = 'instance-status instance-status-running';
+    statusEl.innerHTML = '<span class="instance-status-dot running"></span>租户实例运行中';
+    document.getElementById('formRuntimeContainerName').textContent = ii.container_name || '-';
+    var mountsHtml = (ii.mounts && ii.mounts.length) ? ii.mounts.map(function(m) {
+      return '<li>' + esc(m.host) + ' → ' + esc(m.bind) + ' (' + (m.mode || 'rw') + ')</li>';
+    }).join('') : '<span style="color:#64748b">无</span>';
+    document.getElementById('formRuntimeMounts').innerHTML = '<ul>' + mountsHtml + '</ul>';
+  } else {
+    statusEl.className = 'instance-status instance-status-stopped';
+    statusEl.innerHTML = '<span class="instance-status-dot stopped"></span>实例未运行';
+    document.getElementById('formRuntimeContainerName').textContent = '-';
+    document.getElementById('formRuntimeMounts').innerHTML = '<span style="color:#64748b">无</span>';
+  }
+  document.getElementById('formDbContainerName').value = ic.container_name || ('copaw-instance-' + userId);
+  var dms = ic.default_mounts || [];
+  if (dms.length === 0 && data.default_mount_host) {
+    dms = [
+      { host: data.default_mount_host, bind: '/app/working', mode: 'rw' },
+      { host: data.default_mount_host ? data.default_mount_host.replace(/\/?$/, '.secret') : '', bind: '/app/working.secret', mode: 'rw' },
+    ];
+  }
+  if (dms.length === 0) dms = [
+    { host: '', bind: '/app/working', mode: 'rw' },
+    { host: '', bind: '/app/working.secret', mode: 'rw' },
+  ];
+  renderMountsListDefault(dms);
+  renderMountsList(ic.extra_mounts || data.extra_mounts || []);
+  document.getElementById('formEnv').value = (data.env && Object.keys(data.env).length) ? JSON.stringify(data.env, null, 2) : '';
   showModal('tenantModal');
+}
+
+function renderMountsListDefault(mounts) {
+  const list = document.getElementById('mountsListDefault');
+  list.innerHTML = '';
+  const arr = mounts && mounts.length ? mounts : [
+    { host: '', bind: '/app/working', mode: 'rw' },
+    { host: '', bind: '/app/working.secret', mode: 'rw' },
+  ];
+  arr.forEach(function(m) {
+    const row = document.createElement('div');
+    row.className = 'mount-row mount-row-fixed';
+    row.setAttribute('data-default', 'true');
+    var host = m.host || '';
+    var bind = m.bind || '/app/working';
+    var mode = m.mode || 'rw';
+    row.innerHTML = `
+      <input type="text" value="${esc(host)}" data-host readonly>
+      <span class="mount-arrow">→</span>
+      <input type="text" value="${esc(bind)}" data-bind readonly>
+      <select data-mode disabled>
+        <option value="rw" ${mode === 'rw' ? 'selected' : ''}>rw 读写</option>
+        <option value="ro" ${mode === 'ro' ? 'selected' : ''}>ro 只读</option>
+      </select>
+    `;
+    list.appendChild(row);
+  });
+}
+
+function renderMountsList(mounts) {
+  const list = document.getElementById('mountsList');
+  list.innerHTML = '';
+  const arr = mounts && mounts.length ? mounts : [];
+  arr.forEach((m) => addMountRow(m.host || '', m.bind || '', m.mode || 'rw'));
+  if (arr.length === 0) addMountRow('', '', 'rw');
+}
+
+function renderMountsListAdd(mounts) {
+  const list = document.getElementById('mountsListAdd');
+  list.innerHTML = '';
+  const arr = mounts && mounts.length ? mounts : [{ host: '', bind: '', mode: 'rw' }];
+  arr.forEach((m) => addMountRowForAdd(m.host || '', m.bind || '', m.mode || 'rw'));
+}
+
+function addMountRow(host = '', bind = '', mode = 'rw') {
+  const list = document.getElementById('mountsList');
+  const row = document.createElement('div');
+  row.className = 'mount-row';
+  const id = 'mount_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  row.innerHTML = `
+    <input type="text" placeholder="宿主机路径" value="${esc(host)}" data-host>
+    <span class="mount-arrow">→</span>
+    <input type="text" placeholder="容器路径" value="${esc(bind)}" data-bind>
+    <select data-mode>
+      <option value="rw" ${mode === 'rw' ? 'selected' : ''}>rw 读写</option>
+      <option value="ro" ${mode === 'ro' ? 'selected' : ''}>ro 只读</option>
+    </select>
+    <button type="button" class="btn btn-sm btn-remove" onclick="removeMountRow(this)" title="删除">×</button>
+  `;
+  list.appendChild(row);
+}
+
+function addMountRowForAdd(host = '', bind = '', mode = 'rw') {
+  const list = document.getElementById('mountsListAdd');
+  const row = document.createElement('div');
+  row.className = 'mount-row';
+  row.innerHTML = `
+    <input type="text" placeholder="宿主机路径" value="${esc(host)}" data-host>
+    <span class="mount-arrow">→</span>
+    <input type="text" placeholder="容器路径" value="${esc(bind)}" data-bind>
+    <select data-mode>
+      <option value="rw" ${mode === 'rw' ? 'selected' : ''}>rw 读写</option>
+      <option value="ro" ${mode === 'ro' ? 'selected' : ''}>ro 只读</option>
+    </select>
+    <button type="button" class="btn btn-sm btn-remove" onclick="removeMountRow(this)" title="删除">×</button>
+  `;
+  list.appendChild(row);
+}
+
+function removeMountRow(btn) {
+  btn.closest('.mount-row')?.remove();
+}
+
+function getMountsFromList() {
+  const mode = document.getElementById('modalMode').value;
+  const listId = mode === 'add' ? 'mountsListAdd' : 'mountsList';
+  const rows = document.querySelectorAll('#' + listId + ' .mount-row');
+  const result = [];
+  rows.forEach(r => {
+    const host = (r.querySelector('[data-host]')?.value || '').trim();
+    const bind = (r.querySelector('[data-bind]')?.value || '').trim();
+    const mode = r.querySelector('[data-mode]')?.value || 'rw';
+    if (host && bind) result.push({ host, bind, mode });
+  });
+  return result;
 }
 
 async function submitTenant() {
@@ -440,9 +770,12 @@ async function submitTenant() {
     try { env = JSON.parse(envStr); } catch { toast('环境变量 JSON 格式错误', 'error'); return; }
   }
 
+  const extraMounts = getMountsFromList();
+
   const body = { user_id: userId, user_name: userName };
-  if (password) body.password = password;
+  if (password) body.password = password;  // 编辑时留空则不更新密码
   if (env !== null) body.env = env;
+  body.extra_mounts = extraMounts;
 
   let data;
   if (mode === 'add') {
@@ -460,57 +793,104 @@ async function submitTenant() {
   }
 }
 
+// ---- Remove container ----
+
+function confirmRemoveContainer(userId) {
+  document.getElementById('confirmTitle').textContent = '删除容器';
+  document.getElementById('confirmMessage').textContent = `确定要删除租户「${userId}」的容器吗？租户配置保留，后续可重新启动创建新容器。`;
+  document.getElementById('confirmBtn').onclick = () => doRemoveContainer(userId);
+  document.getElementById('confirmBtn').className = 'btn btn-danger';
+  showModal('confirmModal');
+}
+
+async function doRemoveContainer(userId) {
+  const btn = document.getElementById('confirmBtn');
+  setButtonLoading(btn, true, '删除中...');
+  try {
+    const data = await apiFetch(`/containers/${userId}/remove`, { method: 'POST' });
+    if (data && data.ok) {
+      closeModal('confirmModal');
+      toast(data.message, 'success');
+      setTimeout(loadTenants, 500);
+    } else if (data) {
+      toast(data.message || '删除容器失败', 'error');
+    }
+  } finally {
+    setButtonLoading(btn, false);
+    closeModal('confirmModal');
+  }
+}
+
 // ---- Delete tenant ----
 
 function confirmDelete(userId) {
-  document.getElementById('confirmTitle').textContent = '确认删除';
-  document.getElementById('confirmMessage').textContent = `确定要删除租户「${userId}」吗？该操作不可撤销，容器也将被删除。`;
+  document.getElementById('confirmTitle').textContent = '删除租户';
+  document.getElementById('confirmMessage').textContent = `确定要删除租户「${userId}」吗？该操作不可撤销，租户配置和容器都将被删除。`;
   document.getElementById('confirmBtn').onclick = () => doDelete(userId);
+  document.getElementById('confirmBtn').className = 'btn btn-danger';
   showModal('confirmModal');
 }
 
 async function doDelete(userId) {
-  closeModal('confirmModal');
-  const data = await apiFetch(`/tenants/${userId}`, { method: 'DELETE' });
-  if (data && data.ok) {
-    toast(data.message, 'success');
-    loadTenants();
-  } else if (data) {
-    toast(data.message || '删除失败', 'error');
+  const btn = document.getElementById('confirmBtn');
+  setButtonLoading(btn, true, '删除中...');
+  try {
+    const data = await apiFetch(`/tenants/${userId}`, { method: 'DELETE' });
+    if (data && data.ok) {
+      closeModal('confirmModal');
+      toast(data.message, 'success');
+      loadTenants();
+    } else if (data) {
+      toast(data.message || '删除失败', 'error');
+    }
+  } finally {
+    setButtonLoading(btn, false);
+    closeModal('confirmModal');
   }
 }
 
 // ---- Container actions ----
 
-async function containerAction(userId, action) {
-  const data = await apiFetch(`/containers/${userId}/${action}`, { method: 'POST' });
-  if (data && data.ok) {
-    toast(data.message, 'success');
-    setTimeout(loadTenants, 500);
-  } else if (data) {
-    toast(data.message || '操作失败', 'error');
+async function containerAction(btn, userId, action) {
+  const labels = { start: '启动中...', stop: '停止中...', restart: '重启中...' };
+  setButtonLoading(btn, true, labels[action]);
+  try {
+    const data = await apiFetch(`/containers/${userId}/${action}`, { method: 'POST' });
+    if (data && data.ok) {
+      toast(data.message, 'success');
+      setTimeout(loadTenants, 500);
+    } else if (data) {
+      toast(data.message || '操作失败', 'error');
+    }
+  } finally {
+    setButtonLoading(btn, false);
   }
 }
 
 // ---- Batch actions ----
 
-async function batchAction(action) {
+async function batchAction(btn, action) {
   const ids = getSelectedIds();
   if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
-  const data = await apiFetch('/containers/batch', {
-    method: 'POST',
-    body: JSON.stringify({ action, user_ids: ids }),
-  });
-  if (data && data.ok) {
-    const results = data.results || [];
-    const ok = results.filter(r => r.ok).length;
-    const fail = results.filter(r => !r.ok).length;
-    toast(`${action === 'start' ? '启动' : '停止'}: ${ok} 成功, ${fail} 失败`, ok > 0 ? 'success' : 'error');
-    setTimeout(loadTenants, 500);
-  } else if (data) {
-    toast(data.message || '操作失败', 'error');
+  setButtonLoading(btn, true, '执行中...');
+  try {
+    const data = await apiFetch('/containers/batch', {
+      method: 'POST',
+      body: JSON.stringify({ action, user_ids: ids }),
+    });
+    if (data && data.ok) {
+      const results = data.results || [];
+      const ok = results.filter(r => r.ok).length;
+      const fail = results.filter(r => !r.ok).length;
+      toast(`${action === 'start' ? '启动' : '停止'}: ${ok} 成功, ${fail} 失败`, ok > 0 ? 'success' : 'error');
+      setTimeout(loadTenants, 500);
+    } else if (data) {
+      toast(data.message || '操作失败', 'error');
+    }
+    document.getElementById('selectAll').checked = false;
+  } finally {
+    setButtonLoading(btn, false);
   }
-  document.getElementById('selectAll').checked = false;
 }
 
 // ---- Logs ----
@@ -537,9 +917,23 @@ function closeLogPanel() {
 
 // ---- Import ----
 
+const IMPORT_TEXT_DEFAULT = `[
+  {
+    "user_id": "lilinxin", 
+    "user_name": "李林鑫", 
+    "password": "123"
+  },
+  {
+    "user_id": "lutingxiang-1", 
+    "user_name": "陆廷骧", 
+    "password": "123"
+  }
+]`;
+
 function showImportModal() {
   document.getElementById('importFile').value = '';
-  document.getElementById('importText').value = '';
+  const textarea = document.getElementById('importText');
+  if (!textarea.value.trim()) textarea.value = IMPORT_TEXT_DEFAULT;
   showModal('importModal');
 }
 
@@ -570,8 +964,111 @@ async function submitImport() {
     if (data.errors && data.errors.length) {
       data.errors.forEach(e => toast(e, 'error'));
     }
+    document.getElementById('importText').value = '';
     closeModal('importModal');
     loadTenants();
+  }
+}
+
+// ---- Distribute ----
+
+document.addEventListener('change', (e) => {
+  if (e.target.matches('.tenant-cb') || e.target.id === 'selectAll') updateBatchButtonsState();
+});
+
+function treeNodeToJsTree(node) {
+  var items = [];
+  if (!node.children) return items;
+  for (var i = 0; i < node.children.length; i++) {
+    var c = node.children[i];
+    var item = {
+      text: c.name,
+      data: { path: c.path || '' },
+      icon: c.is_dir ? 'jstree-folder' : 'jstree-file',
+      state: { opened: false }
+    };
+    if (c.is_dir && c.children && c.children.length > 0) {
+      item.children = treeNodeToJsTree(c);
+    }
+    items.push(item);
+  }
+  return items;
+}
+
+async function showDistributeModal() {
+  var ids = getSelectedIds();
+  if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
+  document.getElementById('distributeTenantsHint').textContent =
+    '已选租户: ' + ids.join(', ') + ' (' + ids.length + ' 个)';
+  showModal('distributeModal');
+
+  var $tree = jQuery('#distributeTree');
+  if ($tree.jstree(true)) { $tree.jstree('destroy'); }
+  $tree.html('<div style="text-align:center;padding:1.5rem;color:#64748b">加载中...</div>');
+
+  var data = await apiFetch('/templates/tree');
+  if (!data) return;
+  if (!data.ok) {
+    $tree.html('<div style="text-align:center;padding:1.5rem;color:#f87171">' + esc(data.error || '加载失败') + '</div>');
+    return;
+  }
+  if (!data.tree || !data.tree.children || data.tree.children.length === 0) {
+    $tree.html('<div style="text-align:center;padding:1.5rem;color:#64748b">模板目录为空</div>');
+    return;
+  }
+
+  var jsTreeData = treeNodeToJsTree(data.tree);
+  $tree.html('');
+  $tree.jstree({
+    core: {
+      data: jsTreeData,
+      themes: { name: 'default', dots: true, icons: true }
+    },
+    checkbox: {
+      keep_selected_style: false,
+      three_state: true,
+      cascade: 'up+down+undetermined'
+    },
+    plugins: ['checkbox']
+  });
+}
+
+function getDistributeSelectedPaths() {
+  var $tree = jQuery('#distributeTree');
+  var inst = $tree.jstree(true);
+  if (!inst) return [];
+  var checked = inst.get_checked(true);
+  var paths = [];
+  for (var i = 0; i < checked.length; i++) {
+    var p = checked[i].data && checked[i].data.path;
+    if (p) paths.push(p);
+  }
+  return paths;
+}
+
+async function submitDistribute() {
+  const paths = getDistributeSelectedPaths();
+  if (paths.length === 0) { toast('请至少选择一个文件或目录', 'error'); return; }
+  const ids = getSelectedIds();
+  if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
+  const btn = document.getElementById('btnDistributeConfirm');
+  setButtonLoading(btn, true, '分发中...');
+  try {
+    const data = await apiFetch('/distribute', {
+      method: 'POST',
+      body: JSON.stringify({ tenant_ids: ids, paths }),
+    });
+    if (data && data.ok) {
+      const results = data.results || [];
+      const ok = results.filter(r => r.ok).length;
+      const fail = results.filter(r => !r.ok).length;
+      toast(`分发完成: ${ok} 成功, ${fail} 失败`, fail === 0 ? 'success' : 'error');
+      closeModal('distributeModal');
+    } else if (data) {
+      toast(data.message || '分发失败', 'error');
+    }
+  } finally {
+    setButtonLoading(btn, false);
   }
 }
 

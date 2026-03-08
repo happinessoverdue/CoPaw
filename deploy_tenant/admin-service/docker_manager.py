@@ -44,17 +44,42 @@ def create_and_start_container(
     port: int,
     network: str,
     env: dict | None = None,
+    extra_volumes: list | None = None,
+    force_recreate: bool = False,
+    secret_dir: str | None = None,
 ) -> tuple[bool, str]:
-    """Create and start a container, or start it if it already exists (stopped)."""
+    """Create and start a container, or start it if it already exists (stopped).
+
+    extra_volumes: list of {"host": "/host/path", "bind": "/container/path", "mode": "rw"}
+    force_recreate: if True, remove existing container and create fresh (to apply new mounts)
+    secret_dir: host path for CoPaw SECRET_DIR ({data_dir}.secret), mounted to /app/working.secret
+    """
     client = _get_client()
+
+    volumes = {data_dir: {"bind": "/app/working", "mode": "rw"}}
+    if secret_dir:
+        volumes[secret_dir] = {"bind": "/app/working.secret", "mode": "rw"}
+    for m in extra_volumes or []:
+        host = m.get("host", "").strip()
+        bind = m.get("bind", "").strip()
+        if host and bind:
+            mode = m.get("mode", "rw")
+            volumes[host] = {"bind": bind, "mode": mode}
 
     try:
         existing = client.containers.get(container_name)
         if existing.status == "running":
-            return True, "容器已在运行中"
-        existing.start()
-        logger.info("Started existing container: %s", container_name)
-        return True, "容器已启动（从已停止状态恢复）"
+            if force_recreate:
+                existing.stop(timeout=10)
+                existing.remove(force=True)
+            else:
+                return True, "容器已在运行中"
+        elif force_recreate:
+            existing.remove(force=True)
+        else:
+            existing.start()
+            logger.info("Started existing container: %s", container_name)
+            return True, "容器已启动（从已停止状态恢复）"
     except NotFound:
         pass
     except APIError as e:
@@ -67,7 +92,7 @@ def create_and_start_container(
             name=container_name,
             detach=True,
             network=network,
-            volumes={data_dir: {"bind": "/app/working", "mode": "rw"}},
+            volumes=volumes,
             environment=env_list,
             restart_policy={"Name": "unless-stopped"},
         )
@@ -146,6 +171,39 @@ def _format_running_for(started_at_str: str) -> str:
         return f"{days}d {remaining_hours}h"
     except Exception:
         return ""
+
+
+def get_container_runtime_config(container_name: str) -> dict | None:
+    """Get actual runtime config (name, mounts) from a running container.
+    Returns None if container does not exist or is not running.
+    Returns {"container_name": str, "mounts": [{"host": str, "bind": str, "mode": str}, ...]}
+    """
+    client = _get_client()
+    try:
+        container = client.containers.get(container_name)
+        if container.status != "running":
+            return None
+        attrs = container.attrs or {}
+        mounts_raw = attrs.get("Mounts") or []
+        mounts = []
+        for m in mounts_raw:
+            mtype = m.get("Type", "")
+            if mtype == "bind":
+                host = m.get("Source", "")
+                bind = m.get("Destination", "")
+                mode_val = m.get("Mode", "")
+                rw = m.get("RW", True)
+                mode = "ro" if (mode_val == "ro" or not rw) else "rw"
+                if host and bind:
+                    mounts.append({"host": host, "bind": bind, "mode": mode})
+        return {
+            "container_name": container.name,
+            "mounts": mounts,
+        }
+    except NotFound:
+        return None
+    except APIError:
+        return None
 
 
 def get_container_status(container_name: str) -> dict:

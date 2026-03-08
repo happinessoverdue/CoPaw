@@ -45,7 +45,8 @@
 NGINX_PORT=80                          # Nginx 对外端口
 COOKIE_SECRET=改成随机字符串             # Cookie 签名密钥
 COPAW_IMAGE=copaw-ampere:latest        # CoPaw 镜像名
-BASE_DATA_DIR=/data/copaw              # 用户数据根目录
+BASE_DATA_DIR=/data/copaw              # 用户数据根目录（需挂载到 admin 容器以便分发）
+TEMPLATES_DIR=templates                # 模板目录名（data/ 下，默认 templates）
 ADMIN_PASSWORD=admin                   # 管理后台密码
 ```
 
@@ -63,6 +64,7 @@ python prepare.py up       # 启动 nginx + admin
 在管理面板中：
 - **新增租户**: 填写用户 ID、姓名、密码
 - **批量导入**: 上传 JSON 文件批量创建租户
+- **批量分发**: 勾选租户后点击「分发」，从模板目录选择文件/目录批量同步到各租户数据目录
 - **启动实例**: 点击「启动」按钮，admin 自动创建 Docker 容器
 - **停止/重启**: 在管理面板上操作
 - **查看日志**: 点击「日志」查看容器输出
@@ -122,15 +124,22 @@ python prepare.py down       # 停止所有服务
 
 ## 定制某个用户的提示词
 
-直接编辑该用户的数据目录：
+**方式一**：直接编辑该用户的数据目录：
 
 ```bash
-vim /data/copaw/zhangsan/AGENTS.md
-vim /data/copaw/zhangsan/SOUL.md
-vim /data/copaw/zhangsan/PROFILE.md
+vim /data/copaw/zhangsan/working/AGENTS.md
+vim /data/copaw/zhangsan/working/SOUL.md
 ```
 
+**方式二**：使用管理面板「分发」功能，从 `data/templates/` 选择文件/目录批量同步到选中租户，修改模板后一次分发即可更新多个租户。
+
 在管理面板上重启对应用户的容器即可生效。
+
+## 模板与分发
+
+- **模板目录**：`data/templates/`（可通过 `TEMPLATES_DIR` 环境变量配置）
+- 模板结构对标每个租户目录，例如 `templates/working/AGENTS.md` → `{user_id}/working/AGENTS.md`
+- 分发时勾选租户，选择要分发的文件或目录，确认后批量复制到各租户对应路径，覆盖已存在文件
 
 ## 文件说明
 
@@ -141,17 +150,20 @@ deploy_tenant/
 ├── docker-compose.yml          # 静态编排：仅 nginx + admin
 ├── admin-service/              # 认证 + 管理服务
 │   ├── Dockerfile
-│   ├── main.py                 # FastAPI: 认证 API + 管理 API
+│   ├── main.py                 # FastAPI: 认证 API + 管理 API + 分发 API
 │   ├── db.py                   # SQLite 租户数据层
 │   ├── docker_manager.py       # Docker API 封装
 │   ├── requirements.txt
 │   ├── login.html              # 用户登录页
-│   └── admin.html              # 管理面板页面
+│   ├── admin.html              # 管理面板页面
+│   └── static/                 # 静态资源（jQuery、jsTree，用于分发目录树）
 ├── nginx/
 │   └── nginx.conf              # Nginx 静态配置
 ├── copaw.Dockerfile            # CoPaw 镜像构建文件
 ├── data/                       # 挂载到宿主机的持久化目录
-│   └── admin.db                # SQLite 数据库（运行时自动创建）
+│   ├── admin.db                # SQLite 数据库（运行时自动创建）
+│   ├── templates/              # 模板目录（working、working.secret 等，用于分发）
+│   └── README.md               # data 目录说明
 └── images/                     # (export 时生成)
     ├── nginx-alpine.tar
     ├── copaw-admin.tar
