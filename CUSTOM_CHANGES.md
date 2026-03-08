@@ -22,6 +22,14 @@
   - 前端：新增 `SendFile` 组件，在聊天消息中渲染文件下载卡片（含去重、错误处理、下载状态）
 - **涉及文件**：`routers/agent.py`、`SendFile/index.tsx`、`Chat/index.tsx`
 
+## 2026-03-08：多租户部署（deploy_tenant）
+
+- **目的**：基于 Docker Compose 实现多租户隔离部署，每个用户独立容器，Nginx 网关统一认证与路由，Web 管理面板动态管理租户
+- **范围**：
+  - 新增 `deploy_tenant/` 目录：nginx 网关、admin 认证/管理服务、prepare.py CLI（build/up/down/status/logs）
+  - 数据隔离：每租户独立数据目录挂载
+- **涉及文件**：`deploy_tenant/` 全目录（见 `deploy_tenant/README.md`）
+
 ## 2026-03-03：SPA fallback 修复
 
 - **目的**：防止前端 SPA fallback 路由吞掉后端 API 请求，导致 API 404 被当成页面返回
