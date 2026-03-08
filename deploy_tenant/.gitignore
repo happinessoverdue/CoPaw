@@ -1,6 +1,9 @@
 # Python cache
 __pycache__/
 
+# Local docs, do not commit
+CLAUDE.md
+
 # Environment config (contains secrets)
 .env
 
