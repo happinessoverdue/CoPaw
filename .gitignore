@@ -79,7 +79,12 @@ logs/
 # vibe coding
 .claude
 openspec
-/AGENTS.md
+AGENTS.md
 CLAUDE.md
 *.tmp
-docs/custom/工作规划方案（大纲）.md
+
+# 本地文档，不提交
+docs/dont_commit/
+
+# deploy_tenant 子项目需要保留 CLAUDE 文档
+!deploy_tenant/CLAUDE.md

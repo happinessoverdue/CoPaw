@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CoPaw@ampere - 个人助手 - 登录</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+      color: #e2e8f0;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 400px;
+      padding: 2.5rem;
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(100, 116, 139, 0.3);
+      border-radius: 12px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    .login-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .login-header h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: #f1f5f9;
+      margin-bottom: 0.5rem;
+    }
+
+    .login-header p {
+      font-size: 0.875rem;
+      color: #94a3b8;
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #cbd5e1;
+      margin-bottom: 0.5rem;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      font-size: 0.9375rem;
+      color: #f1f5f9;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(100, 116, 139, 0.4);
+      border-radius: 8px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    .form-group input::placeholder {
+      color: #64748b;
+    }
+
+    .login-btn {
+      width: 100%;
+      padding: 0.75rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #fff;
+      background: #3b82f6;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-top: 0.5rem;
+    }
+
+    .login-btn:hover {
+      background: #2563eb;
+    }
+
+    .login-btn:active {
+      background: #1d4ed8;
+    }
+
+    .error {
+      text-align: center;
+      color: #f87171;
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+      padding: 0.5rem;
+      background: rgba(248, 113, 113, 0.1);
+      border-radius: 6px;
+    }
+
+    .page-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .footer {
+      text-align: center;
+      padding: 0.85rem 1.25rem;
+      font-size: 1rem;
+      font-weight: 500;
+      color: #b3c1d5;
+      line-height: 1.7;
+      letter-spacing: 0.02em;
+      background: rgba(26, 44, 69, 0.6);
+      border: 1px solid rgba(100, 116, 139, 0.25);
+      border-radius: 10px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 4px 24px rgba(176, 194, 244, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    .footer .line1 {
+      display: block;
+      white-space: nowrap;
+    }
+
+    .footer .line2 {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-wrapper">
+    <div class="login-container">
+      <div class="login-header">
+        <h1>CoPaw个人助手</h1>
+        <p>请使用分配的账号登录</p>
+      </div>
+
+      <!-- ERROR_PLACEHOLDER -->
+
+      <form action="/auth/login" method="POST">
+        <div class="form-group">
+          <label for="username">用户名</label>
+          <input type="text" id="username" name="username" placeholder="请输入用户名" required autofocus>
+        </div>
+        <div class="form-group">
+          <label for="password">密码</label>
+          <input type="password" id="password" name="password" placeholder="请输入密码" required>
+        </div>
+        <button type="submit" class="login-btn">登 录</button>
+      </form>
+    </div>
+
+    <div class="footer">
+      <span class="line1">CoPaw@ampere (Deluxe agentscope-ai/CoPaw)</span>
+      <span class="line2">Prod. by 李林鑫 (eat. Claude Opus 4.6 × GLM 5)</span>
+    </div>
+  </div>
+</body>
+</html>

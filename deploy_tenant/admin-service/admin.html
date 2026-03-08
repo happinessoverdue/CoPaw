@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CoPaw 租户管理</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+  }
+
+  /* ---- Top bar ---- */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+  }
+  .topbar h1 { font-size: 1.125rem; font-weight: 600; color: #f1f5f9; }
+  .topbar-right { display: flex; align-items: center; gap: 1rem; }
+  .topbar-right span { font-size: 0.8125rem; color: #94a3b8; }
+  .topbar-right a {
+    font-size: 0.8125rem; color: #94a3b8; text-decoration: none;
+    padding: 0.375rem 0.75rem; border: 1px solid #475569; border-radius: 6px;
+    transition: all 0.15s;
+  }
+  .topbar-right a:hover { color: #e2e8f0; border-color: #64748b; }
+
+  /* ---- Main content ---- */
+  .main { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+
+  /* ---- Toolbar ---- */
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; align-items: center;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.375rem;
+    padding: 0.5rem 0.875rem; font-size: 0.8125rem; font-weight: 500;
+    border: 1px solid #475569; border-radius: 6px; cursor: pointer;
+    background: #1e293b; color: #e2e8f0; transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: #334155; border-color: #64748b; }
+  .btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-success { background: #22c55e; border-color: #22c55e; color: #fff; }
+  .btn-success:hover { background: #16a34a; }
+  .btn-danger { background: #ef4444; border-color: #ef4444; color: #fff; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn-sm { padding: 0.3125rem 0.625rem; font-size: 0.75rem; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .toolbar-spacer { flex: 1; }
+  .auto-refresh-label { font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; gap: 0.375rem; }
+  .auto-refresh-label input { accent-color: #3b82f6; }
+
+  /* ---- Table ---- */
+  .table-wrap {
+    background: #1e293b; border: 1px solid #334155; border-radius: 8px; overflow: hidden;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    padding: 0.625rem 0.75rem; font-size: 0.75rem; font-weight: 600;
+    text-align: left; color: #94a3b8; background: #1e293b;
+    border-bottom: 1px solid #334155; text-transform: uppercase; letter-spacing: 0.025em;
+  }
+  tbody td {
+    padding: 0.625rem 0.75rem; font-size: 0.8125rem; border-bottom: 1px solid #1e293b;
+  }
+  tbody tr { background: #0f172a; transition: background 0.1s; }
+  tbody tr:hover { background: #1e293b; }
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 0.375rem;
+    padding: 0.1875rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 500;
+  }
+  .status-running { background: rgba(34,197,94,0.15); color: #4ade80; }
+  .status-exited { background: rgba(239,68,68,0.15); color: #f87171; }
+  .status-not_found { background: rgba(148,163,184,0.15); color: #94a3b8; }
+  .status-created, .status-paused, .status-restarting { background: rgba(250,204,21,0.15); color: #facc15; }
+  .actions { display: flex; gap: 0.375rem; flex-wrap: wrap; }
+  .empty-row td { text-align: center; color: #64748b; padding: 2rem; }
+  .running-for { font-size: 0.75rem; color: #64748b; }
+
+  /* ---- Modal ---- */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    z-index: 1000; align-items: center; justify-content: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+    padding: 1.5rem; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+  }
+  .modal h2 { font-size: 1.125rem; font-weight: 600; margin-bottom: 1rem; color: #f1f5f9; }
+  .form-group { margin-bottom: 1rem; }
+  .form-group label {
+    display: block; font-size: 0.8125rem; font-weight: 500; color: #cbd5e1; margin-bottom: 0.375rem;
+  }
+  .form-group input, .form-group textarea {
+    width: 100%; padding: 0.625rem 0.75rem; font-size: 0.875rem; color: #f1f5f9;
+    background: rgba(15,23,42,0.6); border: 1px solid rgba(100,116,139,0.4);
+    border-radius: 6px; outline: none; transition: border-color 0.2s;
+    font-family: inherit;
+  }
+  .form-group input:focus, .form-group textarea:focus {
+    border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+  }
+  .form-group textarea { min-height: 100px; resize: vertical; }
+  .form-group .hint { font-size: 0.75rem; color: #64748b; margin-top: 0.25rem; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem; }
+
+  /* ---- Log panel ---- */
+  .log-panel {
+    display: none; margin-top: 1rem; background: #1e293b; border: 1px solid #334155;
+    border-radius: 8px; overflow: hidden;
+  }
+  .log-panel.active { display: block; }
+  .log-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.625rem 0.75rem; background: #1e293b; border-bottom: 1px solid #334155;
+  }
+  .log-header span { font-size: 0.8125rem; font-weight: 600; color: #94a3b8; }
+  .log-content {
+    padding: 0.75rem; font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    font-size: 0.75rem; line-height: 1.5; color: #cbd5e1;
+    max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    background: #0f172a;
+  }
+
+  /* ---- Toast ---- */
+  .toast-container {
+    position: fixed; top: 1rem; right: 1rem; z-index: 2000;
+    display: flex; flex-direction: column; gap: 0.5rem;
+  }
+  .toast {
+    padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.8125rem;
+    color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    animation: toast-in 0.3s ease;
+  }
+  .toast-success { background: #16a34a; }
+  .toast-error { background: #dc2626; }
+  .toast-info { background: #2563eb; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(-0.5rem); } to { opacity: 1; transform: none; } }
+
+  /* ---- Misc ---- */
+  .checkbox-cell { width: 2.5rem; text-align: center; }
+  .checkbox-cell input { accent-color: #3b82f6; cursor: pointer; }
+  .loading { text-align: center; padding: 2rem; color: #64748b; }
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <h1>CoPaw 租户管理</h1>
+  <div class="topbar-right">
+    <span>admin</span>
+    <a href="/admin/logout">退出管理</a>
+  </div>
+</div>
+
+<!-- Main Content -->
+<div class="main">
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button class="btn btn-primary" onclick="showAddModal()">+ 新增租户</button>
+    <button class="btn" onclick="showImportModal()">导入 JSON</button>
+    <button class="btn btn-success" onclick="batchAction('start')">批量启动</button>
+    <button class="btn btn-danger" onclick="batchAction('stop')">批量停止</button>
+    <div class="toolbar-spacer"></div>
+    <label class="auto-refresh-label">
+      <input type="checkbox" id="autoRefresh" checked onchange="toggleAutoRefresh()">
+      自动刷新 (5s)
+    </label>
+    <button class="btn" onclick="loadTenants()">刷新</button>
+  </div>
+
+  <!-- Tenant Table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="checkbox-cell"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+          <th>用户 ID</th>
+          <th>姓名</th>
+          <th>容器状态</th>
+          <th>运行时长</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="tenantBody">
+        <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Log Panel -->
+  <div class="log-panel" id="logPanel">
+    <div class="log-header">
+      <span id="logTitle">容器日志</span>
+      <button class="btn btn-sm" onclick="closeLogPanel()">关闭</button>
+    </div>
+    <div class="log-content" id="logContent"></div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="tenantModal">
+  <div class="modal">
+    <h2 id="modalTitle">新增租户</h2>
+    <input type="hidden" id="modalMode" value="add">
+    <div class="form-group">
+      <label for="formUserId">用户 ID</label>
+      <input type="text" id="formUserId" placeholder="如: zhangsan (英文/数字/下划线)">
+      <div class="hint">登录用户名，创建后不可修改</div>
+    </div>
+    <div class="form-group">
+      <label for="formUserName">姓名</label>
+      <input type="text" id="formUserName" placeholder="如: 张三">
+    </div>
+    <div class="form-group">
+      <label for="formPassword">密码</label>
+      <input type="text" id="formPassword" placeholder="登录密码">
+    </div>
+    <div class="form-group">
+      <label for="formEnv">环境变量 (JSON, 可选)</label>
+      <textarea id="formEnv" placeholder='{"DASHSCOPE_API_KEY": "sk-xxx"}'></textarea>
+      <div class="hint">JSON 格式的键值对，留空则使用默认环境变量</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('tenantModal')">取消</button>
+      <button class="btn btn-primary" onclick="submitTenant()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <h2>批量导入租户</h2>
+    <div class="form-group">
+      <label for="importFile">选择 JSON 文件</label>
+      <input type="file" id="importFile" accept=".json" style="color:#94a3b8">
+    </div>
+    <div class="form-group">
+      <label for="importText">或直接粘贴 JSON 内容</label>
+      <textarea id="importText" rows="8" placeholder='[
+  {"user_id": "zhangsan", "user_name": "张三", "password": "xxx"},
+  {"user_id": "lisi", "user_name": "李四", "password": "xxx"}
+]'></textarea>
+      <div class="hint">JSON 数组，每项需包含 user_id、user_name、password 字段</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('importModal')">取消</button>
+      <button class="btn btn-primary" onclick="submitImport()">导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="max-width:400px">
+    <h2 id="confirmTitle">确认操作</h2>
+    <p id="confirmMessage" style="color:#94a3b8;font-size:0.875rem;margin-bottom:1.25rem"></p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('confirmModal')">取消</button>
+      <button class="btn btn-danger" id="confirmBtn" onclick="">确定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/admin/api';
+let autoRefreshTimer = null;
+let tenantsData = [];
+
+// ---- API helpers ----
+
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(API + path, {
+    headers: { 'Content-Type': 'application/json', ...opts.headers },
+    ...opts,
+  });
+  if (res.status === 401) {
+    window.location.href = '/admin/login';
+    return null;
+  }
+  return res.json();
+}
+
+// ---- Toast ----
+
+function toast(message, type = 'info') {
+  const c = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = message;
+  c.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ---- Load and render tenants ----
+
+async function loadTenants() {
+  const data = await apiFetch('/tenants');
+  if (!data) return;
+  tenantsData = data.tenants || [];
+  renderTable();
+}
+
+function statusBadge(status) {
+  const labels = {
+    running: '运行中', exited: '已停止', not_found: '未创建',
+    created: '已创建', paused: '已暂停', restarting: '重启中',
+  };
+  const cls = `status-${status || 'not_found'}`;
+  const label = labels[status] || status || '未知';
+  return `<span class="status-badge ${cls}">${label}</span>`;
+}
+
+function renderTable() {
+  const tbody = document.getElementById('tenantBody');
+  if (tenantsData.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">暂无租户，点击「+ 新增租户」开始</td></tr>';
+    return;
+  }
+  tbody.innerHTML = tenantsData.map(t => {
+    const cs = t.container || {};
+    const st = cs.status || 'not_found';
+    const isRunning = st === 'running';
+    return `<tr>
+      <td class="checkbox-cell"><input type="checkbox" class="tenant-cb" value="${t.user_id}"></td>
+      <td><strong>${esc(t.user_id)}</strong></td>
+      <td>${esc(t.user_name)}</td>
+      <td>${statusBadge(st)}</td>
+      <td><span class="running-for">${cs.running_for || '-'}</span></td>
+      <td class="actions">
+        ${isRunning
+          ? `<button class="btn btn-sm btn-danger" onclick="containerAction('${t.user_id}','stop')">停止</button>
+             <button class="btn btn-sm" onclick="containerAction('${t.user_id}','restart')">重启</button>
+             <button class="btn btn-sm" onclick="showLogs('${t.user_id}')">日志</button>`
+          : `<button class="btn btn-sm btn-success" onclick="containerAction('${t.user_id}','start')">启动</button>`}
+        <button class="btn btn-sm" onclick="showEditModal('${t.user_id}')">编辑</button>
+        ${!isRunning ? `<button class="btn btn-sm btn-danger" onclick="confirmDelete('${t.user_id}')">删除</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// ---- Auto refresh ----
+
+function toggleAutoRefresh() {
+  if (document.getElementById('autoRefresh').checked) {
+    startAutoRefresh();
+  } else {
+    stopAutoRefresh();
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  autoRefreshTimer = setInterval(loadTenants, 5000);
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+}
+
+// ---- Select all ----
+
+function toggleSelectAll() {
+  const checked = document.getElementById('selectAll').checked;
+  document.querySelectorAll('.tenant-cb').forEach(cb => cb.checked = checked);
+}
+
+function getSelectedIds() {
+  return Array.from(document.querySelectorAll('.tenant-cb:checked')).map(cb => cb.value);
+}
+
+// ---- Modal helpers ----
+
+function showModal(id) { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+// ---- Add tenant ----
+
+function showAddModal() {
+  document.getElementById('modalTitle').textContent = '新增租户';
+  document.getElementById('modalMode').value = 'add';
+  document.getElementById('formUserId').value = '';
+  document.getElementById('formUserId').disabled = false;
+  document.getElementById('formUserName').value = '';
+  document.getElementById('formPassword').value = '';
+  document.getElementById('formEnv').value = '';
+  showModal('tenantModal');
+}
+
+// ---- Edit tenant ----
+
+function showEditModal(userId) {
+  const t = tenantsData.find(x => x.user_id === userId);
+  if (!t) return;
+  document.getElementById('modalTitle').textContent = '编辑租户';
+  document.getElementById('modalMode').value = 'edit';
+  document.getElementById('formUserId').value = t.user_id;
+  document.getElementById('formUserId').disabled = true;
+  document.getElementById('formUserName').value = t.user_name;
+  document.getElementById('formPassword').value = '';
+  document.getElementById('formEnv').value = (t.env && Object.keys(t.env).length) ? JSON.stringify(t.env, null, 2) : '';
+  showModal('tenantModal');
+}
+
+async function submitTenant() {
+  const mode = document.getElementById('modalMode').value;
+  const userId = document.getElementById('formUserId').value.trim();
+  const userName = document.getElementById('formUserName').value.trim();
+  const password = document.getElementById('formPassword').value;
+  const envStr = document.getElementById('formEnv').value.trim();
+
+  if (!userId || !userName) { toast('用户 ID 和姓名不能为空', 'error'); return; }
+  if (mode === 'add' && !password) { toast('新增租户必须设置密码', 'error'); return; }
+
+  let env = null;
+  if (envStr) {
+    try { env = JSON.parse(envStr); } catch { toast('环境变量 JSON 格式错误', 'error'); return; }
+  }
+
+  const body = { user_id: userId, user_name: userName };
+  if (password) body.password = password;
+  if (env !== null) body.env = env;
+
+  let data;
+  if (mode === 'add') {
+    data = await apiFetch('/tenants', { method: 'POST', body: JSON.stringify(body) });
+  } else {
+    data = await apiFetch(`/tenants/${userId}`, { method: 'PUT', body: JSON.stringify(body) });
+  }
+
+  if (data && data.ok) {
+    toast(data.message, 'success');
+    closeModal('tenantModal');
+    loadTenants();
+  } else if (data) {
+    toast(data.message || '操作失败', 'error');
+  }
+}
+
+// ---- Delete tenant ----
+
+function confirmDelete(userId) {
+  document.getElementById('confirmTitle').textContent = '确认删除';
+  document.getElementById('confirmMessage').textContent = `确定要删除租户「${userId}」吗？该操作不可撤销，容器也将被删除。`;
+  document.getElementById('confirmBtn').onclick = () => doDelete(userId);
+  showModal('confirmModal');
+}
+
+async function doDelete(userId) {
+  closeModal('confirmModal');
+  const data = await apiFetch(`/tenants/${userId}`, { method: 'DELETE' });
+  if (data && data.ok) {
+    toast(data.message, 'success');
+    loadTenants();
+  } else if (data) {
+    toast(data.message || '删除失败', 'error');
+  }
+}
+
+// ---- Container actions ----
+
+async function containerAction(userId, action) {
+  const data = await apiFetch(`/containers/${userId}/${action}`, { method: 'POST' });
+  if (data && data.ok) {
+    toast(data.message, 'success');
+    setTimeout(loadTenants, 500);
+  } else if (data) {
+    toast(data.message || '操作失败', 'error');
+  }
+}
+
+// ---- Batch actions ----
+
+async function batchAction(action) {
+  const ids = getSelectedIds();
+  if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
+  const data = await apiFetch('/containers/batch', {
+    method: 'POST',
+    body: JSON.stringify({ action, user_ids: ids }),
+  });
+  if (data && data.ok) {
+    const results = data.results || [];
+    const ok = results.filter(r => r.ok).length;
+    const fail = results.filter(r => !r.ok).length;
+    toast(`${action === 'start' ? '启动' : '停止'}: ${ok} 成功, ${fail} 失败`, ok > 0 ? 'success' : 'error');
+    setTimeout(loadTenants, 500);
+  } else if (data) {
+    toast(data.message || '操作失败', 'error');
+  }
+  document.getElementById('selectAll').checked = false;
+}
+
+// ---- Logs ----
+
+async function showLogs(userId) {
+  const panel = document.getElementById('logPanel');
+  document.getElementById('logTitle').textContent = `日志: copaw-instance-${userId}`;
+  document.getElementById('logContent').textContent = '加载中...';
+  panel.classList.add('active');
+
+  const data = await apiFetch(`/containers/${userId}/logs?tail=200`);
+  if (data && data.ok) {
+    document.getElementById('logContent').textContent = data.logs || '(空)';
+    const logEl = document.getElementById('logContent');
+    logEl.scrollTop = logEl.scrollHeight;
+  } else if (data) {
+    document.getElementById('logContent').textContent = data.message || '获取日志失败';
+  }
+}
+
+function closeLogPanel() {
+  document.getElementById('logPanel').classList.remove('active');
+}
+
+// ---- Import ----
+
+function showImportModal() {
+  document.getElementById('importFile').value = '';
+  document.getElementById('importText').value = '';
+  showModal('importModal');
+}
+
+async function submitImport() {
+  let tenants = null;
+  const file = document.getElementById('importFile').files[0];
+  const text = document.getElementById('importText').value.trim();
+
+  if (file) {
+    try {
+      const content = await file.text();
+      tenants = JSON.parse(content);
+    } catch { toast('JSON 文件解析失败', 'error'); return; }
+  } else if (text) {
+    try { tenants = JSON.parse(text); } catch { toast('JSON 格式错误', 'error'); return; }
+  } else {
+    toast('请选择文件或粘贴 JSON 内容', 'error'); return;
+  }
+
+  if (!Array.isArray(tenants)) { toast('JSON 内容必须是数组', 'error'); return; }
+
+  const data = await apiFetch('/tenants/import', {
+    method: 'POST',
+    body: JSON.stringify({ tenants }),
+  });
+  if (data) {
+    toast(data.message, data.imported > 0 ? 'success' : 'error');
+    if (data.errors && data.errors.length) {
+      data.errors.forEach(e => toast(e, 'error'));
+    }
+    closeModal('importModal');
+    loadTenants();
+  }
+}
+
+// ---- Init ----
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadTenants();
+  if (document.getElementById('autoRefresh').checked) startAutoRefresh();
+});
+</script>
+</body>
+</html>
