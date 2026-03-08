@@ -1,0 +1,11 @@
+# Python cache
+__pycache__/
+
+# Environment config (contains secrets)
+.env
+
+# Runtime data (SQLite database)
+data/
+
+# Exported images
+images/

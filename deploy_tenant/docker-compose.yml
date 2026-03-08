@@ -1,0 +1,44 @@
+# CoPaw Multi-Tenant Service
+# Static compose file — only nginx gateway + admin service.
+# CoPaw user instances are created dynamically by admin via Docker API.
+#
+# Configuration is read from .env (auto-loaded by compose).
+# Start with: python prepare.py up
+
+name: copaw-multi-tenant-service
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - copaw-net
+    depends_on:
+      - admin
+    restart: unless-stopped
+
+  admin:
+    image: copaw-admin:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+      # 开发时挂载整个 admin-service，改代码/HTML 后刷新即可，无需重建镜像
+      # 部署到服务器时注释掉下面这行，重新 build 并 export 镜像
+      - ./admin-service:/app
+    environment:
+      - COOKIE_SECRET=${COOKIE_SECRET:-CHANGE_ME_TO_A_RANDOM_STRING}
+      - COPAW_IMAGE=${COPAW_IMAGE:-copaw-ampere:latest}
+      - BASE_DATA_DIR=${BASE_DATA_DIR:-/data/copaw}
+      - COPAW_INTERNAL_PORT=${COPAW_INTERNAL_PORT:-8088}
+      - DOCKER_NETWORK=copaw-multi-tenant-service_copaw-net
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+    networks:
+      - copaw-net
+    restart: unless-stopped
+
+networks:
+  copaw-net:
+    driver: bridge
