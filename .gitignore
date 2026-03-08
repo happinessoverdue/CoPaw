@@ -86,5 +86,5 @@ CLAUDE.md
 # 本地文档，不提交
 docs/dont_commit/
 
-# deploy_tenant 子项目需要保留 CLAUDE 文档
-!deploy_tenant/CLAUDE.md
+# 多租户子项目本地文档，不提交
+deploy_tenant/CLAUDE.md
