@@ -1,9 +1,6 @@
 # Python cache
 __pycache__/
 
-# Local docs, do not commit
-CLAUDE.md
-
 # Environment config (contains secrets)
 .env
 
@@ -12,3 +9,11 @@ data/*
 
 # Exported images
 images/
+
+# vibe coding（AI 工具相关，均不跟踪）
+.claude
+.cursor
+openspec
+AGENTS.md
+CLAUDE.md
+*.tmp

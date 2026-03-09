@@ -79,19 +79,16 @@ venv/
 logs/
 *.log
 
-# vibe coding
+# Build cache
+.cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
+
+# vibe coding（AI 工具相关，均不跟踪）
 .claude
+.cursor
 openspec
 AGENTS.md
 CLAUDE.md
 *.tmp
 
-# Build cache
-.cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
-docs/custom/工作规划方案（大纲）.md
-
-# 本地文档，不提交
-docs/dont_commit/
-
-# 多租户子项目本地文档，不提交
-deploy_tenant/CLAUDE.md
+# 定制文档（不跟踪）
+custom_docs/
