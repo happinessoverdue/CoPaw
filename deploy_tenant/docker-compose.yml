@@ -3,7 +3,7 @@
 # CoPaw user instances are created dynamically by admin via Docker API.
 #
 # Configuration is read from .env (auto-loaded by compose).
-# Start with: python prepare.py up
+# Start with: ./prepare.sh up
 
 name: copaw-multi-tenant-service
 

@@ -33,7 +33,7 @@
 ## 前提条件
 
 - Docker（含 Docker Compose）
-- Python 3（仅用于 `prepare.py` 构建/导入镜像）
+- Bash（推荐 `prepare.sh`，本地和服务器均可直接使用；亦可使用 Python 3 运行 `prepare.py`）
 
 ## 快速开始
 
@@ -46,6 +46,7 @@ NGINX_PORT=80                          # Nginx 对外端口
 COOKIE_SECRET=改成随机字符串             # Cookie 签名密钥
 COPAW_IMAGE=copaw-ampere:latest        # CoPaw 镜像名
 BASE_DATA_DIR=/data/copaw              # 用户数据根目录（需挂载到 admin 容器以便分发）
+COPAW_INTERNAL_PORT=8088               # CoPaw 容器内部监听端口（默认 8088，与 Nginx 代理目标一致，一般无需修改）
 TEMPLATES_DIR=templates                # 模板目录名（data/ 下，默认 templates）
 ADMIN_PASSWORD=admin                   # 管理后台密码
 ```
@@ -53,8 +54,8 @@ ADMIN_PASSWORD=admin                   # 管理后台密码
 ### 2. 构建镜像 & 启动
 
 ```bash
-python prepare.py build    # 构建全部镜像（nginx + admin + copaw）
-python prepare.py up       # 启动 nginx + admin
+./prepare.sh build    # 构建全部镜像（nginx + admin + copaw）
+./prepare.sh up       # 启动 nginx + admin
 ```
 
 ### 3. 管理租户
@@ -77,15 +78,15 @@ python prepare.py up       # 启动 nginx + admin
 
 ```bash
 # --- 在有网的机器上 ---
-python prepare.py build      # 构建全部镜像
-python prepare.py export     # 导出为 tar 文件到 images/
+./prepare.sh build      # 构建全部镜像
+./prepare.sh export     # 导出为 tar 文件到 images/
 
 # 将整个 deploy_tenant 目录（含 images/*.tar）拷贝到内网服务器
 
 # --- 在内网服务器上 ---
-python prepare.py import     # 导入镜像
-vim .env                     # 编辑配置
-python prepare.py up         # 启动
+./prepare.sh import     # 导入镜像
+vim .env                 # 编辑配置
+./prepare.sh up          # 启动
 # 浏览器访问管理面板，添加租户并启动
 ```
 
@@ -100,11 +101,11 @@ python prepare.py up         # 启动
 ## 日常管理
 
 ```bash
-python prepare.py status     # 查看 nginx + admin 容器状态
-python prepare.py logs       # 查看全部日志
-python prepare.py logs admin # 查看 admin 服务日志
-python prepare.py restart    # 重启 nginx + admin
-python prepare.py down       # 停止所有服务
+./prepare.sh status     # 查看 nginx + admin 容器状态
+./prepare.sh logs       # 查看全部日志
+./prepare.sh logs admin # 查看 admin 服务日志
+./prepare.sh restart    # 重启 nginx + admin
+./prepare.sh down        # 停止所有服务
 ```
 
 租户和 CoPaw 实例的管理全部在 Web 管理面板上完成。
@@ -146,7 +147,8 @@ vim /data/copaw/zhangsan/working/SOUL.md
 ```
 deploy_tenant/
 ├── .env                        # 部署配置（端口、密钥、镜像名等）
-├── prepare.py                  # 镜像构建/导出/导入 + 首次启停
+├── prepare.sh                  # 镜像构建/导出/导入 + 首次启停（推荐，Bash 脚本）
+├── prepare.py                  # 同上，Python 版本（无 Bash 时可用）
 ├── docker-compose.yml          # 静态编排：仅 nginx + admin
 ├── admin-service/              # 认证 + 管理服务
 │   ├── Dockerfile
@@ -174,7 +176,7 @@ deploy_tenant/
 
 | 问题 | 排查方向 |
 |------|---------|
-| 管理面板无法访问 | `python prepare.py status` 确认 nginx + admin 容器运行 |
+| 管理面板无法访问 | `./prepare.sh status` 确认 nginx + admin 容器运行 |
 | 用户登录后白屏 | 管理面板查看对应用户容器日志 |
 | "用户名或密码错误" | 管理面板确认租户配置 |
 | 大模型调用失败 | 检查 .env 或租户环境变量中的 API Key |

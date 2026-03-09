@@ -4,6 +4,8 @@
 Handles image building, export/import for offline deployment, and initial
 compose startup. Runtime tenant management is handled by the admin Web UI.
 
+推荐优先使用 prepare.sh（Bash 版本，无需 Python）。本脚本适用于无 Bash 环境。
+
 Usage:
     python prepare.py build       Build all Docker images
     python prepare.py export      Export images to tar files (for offline transfer)

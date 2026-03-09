@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # CoPaw Multi-Tenant Deployment Preparation Tool (Shell version).
-# Functionally identical to prepare.py. Use when Python is not available.
+# 推荐使用：本地和服务器均可直接运行，无需 Python。
+# prepare.py 为 Python 版本，功能等价，可在无 Bash 环境下使用。
 
 set -e
 
@@ -47,7 +48,7 @@ cmd_build_nginx() {
 
 cmd_build_admin() {
     echo "==> Building admin image: copaw-admin:latest"
-    run docker build -t copaw-admin:latest "${SCRIPT_DIR}/admin-service"
+    run docker build -f "${SCRIPT_DIR}/admin-service/Dockerfile" -t copaw-admin:latest "${SCRIPT_DIR}"
 }
 
 cmd_build_copaw() {
