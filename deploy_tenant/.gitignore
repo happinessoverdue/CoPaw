@@ -8,10 +8,7 @@ CLAUDE.md
 .env
 
 # Runtime data (SQLite database)
-# Use data/* (not data/) so negation can un-ignore specific files
 data/*
-# Exception: track README that documents data structure
-!data/README.md
 
 # Exported images
 images/
