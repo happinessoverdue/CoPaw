@@ -7,6 +7,9 @@ __pycache__/
 # Runtime data (SQLite database)
 data/*
 
+# Shared file service storage (default volume)
+shared_files/
+
 # Exported images
 images/
 

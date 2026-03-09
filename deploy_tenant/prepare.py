@@ -61,8 +61,13 @@ BUILD_TARGETS = ("nginx", "admin", "copaw")
 
 
 def _build_nginx() -> None:
-    print("==> Pulling nginx:alpine (official image)")
-    run(["docker", "pull", "nginx:alpine"])
+    print("==> Building nginx image: copaw-nginx:latest")
+    run([
+        "docker", "build",
+        "-f", str(SCRIPT_DIR / "nginx" / "Dockerfile"),
+        "-t", "copaw-nginx:latest",
+        str(SCRIPT_DIR / "nginx"),
+    ])
 
 
 def _build_admin() -> None:
@@ -89,7 +94,7 @@ def _build_copaw() -> None:
 def cmd_build(targets: Optional[List[str]] = None) -> None:
     """Build Docker images. If targets given, build only those; else build all.
 
-    Targets: nginx (pull), admin, copaw
+    Targets: nginx (build), admin, copaw
     Example: python prepare.py build admin    # rebuild admin only
     """
     if targets:
@@ -113,7 +118,7 @@ def cmd_build(targets: Optional[List[str]] = None) -> None:
     if to_build:
         built = []
         if "nginx" in to_build:
-            built.append("nginx:alpine")
+            built.append("copaw-nginx:latest")
         if "admin" in to_build:
             built.append("copaw-admin:latest")
         if "copaw" in to_build:
@@ -130,7 +135,7 @@ def cmd_export() -> None:
     print(f"==> Exporting images to {IMAGES_DIR}/ ...")
 
     for name, filename in [
-        ("nginx:alpine", "nginx-alpine.tar"),
+        ("copaw-nginx:latest", "copaw-nginx.tar"),
         ("copaw-admin:latest", "copaw-admin.tar"),
         (COPAW_IMAGE, "copaw-ampere.tar"),
     ]:

@@ -42,8 +42,8 @@ run() {
 # ---------------------------------------------------------------------------
 
 cmd_build_nginx() {
-    echo "==> Pulling nginx:alpine (official image)"
-    run docker pull nginx:alpine
+    echo "==> Building nginx image: copaw-nginx:latest"
+    run docker build -f "${SCRIPT_DIR}/nginx/Dockerfile" -t copaw-nginx:latest "${SCRIPT_DIR}/nginx"
 }
 
 cmd_build_admin() {
@@ -87,7 +87,7 @@ cmd_build() {
     local built=""
     for t in "${targets[@]}"; do
         case "$t" in
-            nginx) built="${built:+${built}, }nginx:alpine" ;;
+            nginx) built="${built:+${built}, }copaw-nginx:latest" ;;
             admin) built="${built:+${built}, }copaw-admin:latest" ;;
             copaw) built="${built:+${built}, }${COPAW_IMAGE}" ;;
         esac
@@ -103,8 +103,8 @@ cmd_export() {
     mkdir -p "${IMAGES_DIR}"
     echo "==> Exporting images to ${IMAGES_DIR}/ ..."
 
-    echo "  -> nginx:alpine"
-    run docker save nginx:alpine -o "${IMAGES_DIR}/nginx-alpine.tar"
+    echo "  -> copaw-nginx:latest"
+    run docker save copaw-nginx:latest -o "${IMAGES_DIR}/copaw-nginx.tar"
     echo "  -> copaw-admin:latest"
     run docker save copaw-admin:latest -o "${IMAGES_DIR}/copaw-admin.tar"
     echo "  -> ${COPAW_IMAGE}"

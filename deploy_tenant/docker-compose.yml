@@ -9,7 +9,10 @@ name: copaw-multi-tenant-service
 
 services:
   nginx:
-    image: nginx:alpine
+    image: copaw-nginx:latest
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
     ports:
       - "${NGINX_PORT:-8087}:80"
     volumes:
@@ -27,14 +30,18 @@ services:
       - ./admin-service:/app/admin-service # 管理的前后端、登录的前后端,都在这个目录下
       - ./data:/app/data # 数据目录,包含管理员的数据库,租户的模板等
       - ${BASE_DATA_DIR}:/app/tenants:rw # 租户数据目录,分发时写入
+      - ${SHARED_FILES_DIR:-./shared_files}:/app/shared_files:rw # 共享文件服务存储
     environment:
       - COOKIE_SECRET=${COOKIE_SECRET:-CHANGE_ME_TO_A_RANDOM_STRING}
       - COPAW_IMAGE=${COPAW_IMAGE:-copaw-ampere:latest}
-      - BASE_DATA_DIR=${BASE_DATA_DIR:-/Users/lilinxin/var/COPAW-MULTI-USER-DATA}
+      - BASE_DATA_DIR=${BASE_DATA_DIR:-/Users/lilinxin/var/copaw_tenants_data}
       - TEMPLATES_DIR=${TEMPLATES_DIR:-templates}
       - COPAW_INTERNAL_PORT=${COPAW_INTERNAL_PORT:-8088}
       - DOCKER_NETWORK=copaw-multi-tenant-service_copaw-net
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - SHARED_FILES_DIR=/app/shared_files
+      - FILE_SERVICE_BASE_URL=${FILE_SERVICE_BASE_URL:-http://127.0.0.1}
+      - NGINX_PORT=${NGINX_PORT:-8087}
     networks:
       - copaw-net
     restart: unless-stopped

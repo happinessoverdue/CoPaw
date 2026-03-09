@@ -10,12 +10,16 @@ import hmac
 import json
 import logging
 import os
+import re
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote, urlparse
 
-from fastapi import FastAPI, Form, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+import aiofiles
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import db
@@ -54,6 +58,11 @@ INSTANCE_PREFIX = "copaw-instance-"
 TEMPLATES_DIR = os.environ.get("TEMPLATES_DIR", "templates")
 TEMPLATES_ROOT = Path("/app/data") / TEMPLATES_DIR
 TENANTS_ROOT = Path("/app/tenants")
+
+# 共享文件服务（供 CoPaw 工具/外部服务存储大文件，前端可读取展示）
+SHARED_FILES_DIR = Path(os.environ.get("SHARED_FILES_DIR", "/app/shared_files"))
+_FILE_SERVICE_BASE_RAW = os.environ.get("FILE_SERVICE_BASE_URL", "").rstrip("/")
+_NGINX_PORT = os.environ.get("NGINX_PORT", "")
 
 
 # ---------------------------------------------------------------------------
@@ -768,3 +777,200 @@ async def api_distribute(request: Request):
         })
 
     return {"ok": True, "results": results}
+
+
+# ===================================================================
+# PART 7: Shared File Service
+# ===================================================================
+#
+# 供 CoPaw 工具、外部服务（如潮流计算）写入大文件，前端可读取用于展示。
+# 文件按日期存储：{SHARED_FILES_DIR}/YYYYMMDD/{path}，日期由服务自动添加。
+# 支持 JSON 写入（文本）和 multipart 写入（任意文件含二进制）。
+# 以下代码块可整体定位为「共享文件服务」。
+# ===================================================================
+
+
+def _is_shared_file_path_safe(path: str) -> bool:
+    """校验工具提供的 path：禁止 .. 与绝对路径，仅允许安全字符。"""
+    if not path or len(path) > 512:
+        return False
+    if ".." in path or path.startswith("/") or path.startswith("\\"):
+        return False
+    if re.search(r"[^\w\-. /]", path):
+        return False
+    return True
+
+
+def _build_shared_file_full_path(path: str) -> Path:
+    """构建完整存储路径：{root}/YYYYMMDD/{path}"""
+    date_dir = datetime.now().strftime("%Y%m%d")
+    # 规范化 path，移除首尾空格和多余斜杠
+    clean_path = path.strip().strip("/").replace("\\", "/")
+    rel = f"{date_dir}/{clean_path}" if clean_path else date_dir
+    return (SHARED_FILES_DIR / rel).resolve()
+
+
+def _ensure_resolved_under_root(resolved: Path) -> bool:
+    """确保解析后路径在 SHARED_FILES_DIR 之下。"""
+    root = SHARED_FILES_DIR.resolve()
+    return str(resolved).startswith(str(root))
+
+
+def _get_file_service_base_url() -> str:
+    """
+    构建共享文件服务的 Base URL，端口自动从 NGINX_PORT 补充。
+    FILE_SERVICE_BASE_URL 只需填 scheme+host，如 http://127.0.0.1，无需写端口。
+    """
+    base = _FILE_SERVICE_BASE_RAW
+    if not base:
+        return ""
+    try:
+        port_num = int(_NGINX_PORT)
+    except (ValueError, TypeError):
+        return base
+    p = urlparse(base)
+    if not p.scheme or not p.hostname:
+        return base
+    default_port = 443 if p.scheme == "https" else 80
+    if port_num != default_port:
+        return f"{p.scheme}://{p.hostname}:{port_num}"
+    return base
+
+
+# -----------------------------------------------------------------------
+# Shared File Service - Write (JSON or multipart)
+# -----------------------------------------------------------------------
+
+@app.post("/share_files/write")
+async def shared_files_write(request: Request):
+    """
+    写入文件到共享存储。
+    - JSON: {"path": "query_load_data_tool/abc.json", "content": "..."}
+    - Multipart: path (form) + file (form)
+    返回完整 URL。
+    """
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception as e:
+            return JSONResponse(
+                {"success": False, "error": f"JSON 解析失败: {e}"},
+                status_code=400,
+            )
+        path = body.get("path")
+        content = body.get("content")
+        if not path:
+            return JSONResponse(
+                {"success": False, "error": "缺少 path"},
+                status_code=400,
+            )
+        if content is None:
+            return JSONResponse(
+                {"success": False, "error": "缺少 content"},
+                status_code=400,
+            )
+        if not _is_shared_file_path_safe(path):
+            return JSONResponse(
+                {"success": False, "error": "path 非法"},
+                status_code=400,
+            )
+
+        full_path = _build_shared_file_full_path(path)
+        if not _ensure_resolved_under_root(full_path):
+            return JSONResponse(
+                {"success": False, "error": "path 非法"},
+                status_code=400,
+            )
+
+        try:
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            async with aiofiles.open(full_path, "w", encoding="utf-8") as f:
+                await f.write(content if isinstance(content, str) else str(content))
+        except Exception as e:
+            logger.exception("Shared file write failed: %s", e)
+            return JSONResponse(
+                {"success": False, "error": f"写入失败: {e}"},
+                status_code=500,
+            )
+
+    elif "multipart/form-data" in content_type:
+        form = await request.form()
+        path = form.get("path")
+        file = form.get("file")
+        if not path:
+            return JSONResponse(
+                {"success": False, "error": "缺少 path"},
+                status_code=400,
+            )
+        if not file or not hasattr(file, "read"):
+            return JSONResponse(
+                {"success": False, "error": "缺少 file 字段"},
+                status_code=400,
+            )
+        path_str = path if isinstance(path, str) else str(path)
+        if not _is_shared_file_path_safe(path_str):
+            return JSONResponse(
+                {"success": False, "error": "path 非法"},
+                status_code=400,
+            )
+
+        full_path = _build_shared_file_full_path(path_str)
+        if not _ensure_resolved_under_root(full_path):
+            return JSONResponse(
+                {"success": False, "error": "path 非法"},
+                status_code=400,
+            )
+
+        try:
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            async with aiofiles.open(full_path, "wb") as f:
+                while chunk := await file.read(65536):
+                    await f.write(chunk)
+        except Exception as e:
+            logger.exception("Shared file write (multipart) failed: %s", e)
+            return JSONResponse(
+                {"success": False, "error": f"写入失败: {e}"},
+                status_code=500,
+            )
+
+    else:
+        return JSONResponse(
+            {"success": False, "error": "Content-Type 需为 application/json 或 multipart/form-data"},
+            status_code=400,
+        )
+
+    # 构建相对 path（用于 URL 路径）与完整 URL（端口自动从 NGINX_PORT 补充）
+    rel_path = str(full_path.relative_to(SHARED_FILES_DIR)).replace("\\", "/")
+    encoded = quote(rel_path, safe="/")
+    base = _get_file_service_base_url()
+    full_url = f"{base}/share_files/{encoded}" if base else f"/share_files/{encoded}"
+    return {
+        "success": True,
+        "url": full_url,
+        "path": rel_path,
+    }
+
+
+# -----------------------------------------------------------------------
+# Shared File Service - Read (stream file)
+# -----------------------------------------------------------------------
+
+@app.get("/share_files/{file_path:path}")
+async def shared_files_read(file_path: str):
+    """
+    读取共享文件。path 格式：YYYYMMDD/xxx/yyy.ext
+    """
+    if not file_path:
+        return JSONResponse({"error": "缺少路径"}, status_code=400)
+    if ".." in file_path or file_path.startswith("/") or file_path.startswith("\\"):
+        return JSONResponse({"error": "path 非法"}, status_code=400)
+
+    full_path = (SHARED_FILES_DIR / file_path).resolve()
+    if not _ensure_resolved_under_root(full_path):
+        return JSONResponse({"error": "path 非法"}, status_code=400)
+    if not full_path.is_file():
+        return JSONResponse({"error": "文件不存在"}, status_code=404)
+
+    return FileResponse(str(full_path))

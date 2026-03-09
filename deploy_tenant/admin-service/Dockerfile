@@ -3,6 +3,11 @@
 
 FROM python:3.12-slim
 
+ENV TZ=Asia/Shanghai
+
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/* && apt-get clean
+
 WORKDIR /app
 
 COPY admin-service/requirements.txt .

@@ -25,7 +25,7 @@
 ```
 
 - **nginx**: 唯一对外端口，认证代理 + 动态路由
-- **admin**: 认证网关 + 租户管理 API + Web 管理面板
+- **admin**: 认证网关 + 租户管理 API + Web 管理面板 + 共享文件服务
 - **copaw-instance-{user_id}**: 由 admin 通过 Docker API 按需创建，不在 compose 中
 - CoPaw 容器不暴露端口，只能通过 Nginx 访问
 - 每个用户的数据目录独立挂载，容器重启不丢数据
@@ -49,6 +49,8 @@ BASE_DATA_DIR=/data/copaw              # 用户数据根目录（需挂载到 ad
 COPAW_INTERNAL_PORT=8088               # CoPaw 容器内部监听端口（默认 8088，与 Nginx 代理目标一致，一般无需修改）
 TEMPLATES_DIR=templates                # 模板目录名（data/ 下，默认 templates）
 ADMIN_PASSWORD=admin                   # 管理后台密码
+SHARED_FILES_DIR=./shared_files        # 共享文件服务存储目录（可选，默认 ./shared_files）
+FILE_SERVICE_BASE_URL=http://127.0.0.1  # 共享文件服务 scheme+host，端口自动从 NGINX_PORT 补充
 ```
 
 ### 2. 构建镜像 & 启动
@@ -94,7 +96,7 @@ vim .env                 # 编辑配置
 
 | 镜像 | 来源 | 用途 |
 |------|------|------|
-| `nginx:alpine` | Docker Hub 官方 | 网关路由 |
+| `copaw-nginx:latest` | nginx/Dockerfile | 网关路由（基于 nginx:alpine + tzdata） |
 | `copaw-admin:latest` | admin-service/Dockerfile | 认证 + 管理 |
 | `copaw-ampere:latest` | copaw.Dockerfile | CoPaw 智能助手 |
 
@@ -180,6 +182,18 @@ vim /data/copaw/zhangsan/working/SOUL.md
 - `templates/working.secret/` 内容 → `{BASE_DATA_DIR}/{user_id}/working.secret/`
 - `templates/` 下的根级文件 → `{BASE_DATA_DIR}/{user_id}/` 下同名文件
 
+### 共享文件服务
+
+供 CoPaw 工具、外部服务（如潮流计算）写入大文件，前端可读取展示。
+
+- **路径前缀**：`/share_files/`
+- **写入**：`POST /share_files/write`
+  - JSON：`{"path": "query_load_data_tool/abc.json", "content": "..."}`（文本）
+  - Multipart：`path` + `file`（任意文件，含 docx、图片等）
+- **读取**：`GET /share_files/YYYYMMDD/...`，无需登录
+- **存储**：按日期分目录 `{SHARED_FILES_DIR}/YYYYMMDD/{path}`
+- `FILE_SERVICE_BASE_URL` 只需填 scheme+host（如 `http://127.0.0.1`），端口会自动从 `NGINX_PORT` 补充
+
 **使用前请修改：**
 
 1. **working.secret/providers.json**：将 `api_key` 占位符替换为真实 Key，或依赖租户 env 注入
@@ -203,13 +217,14 @@ deploy_tenant/
 │   ├── admin.html              # 管理面板页面
 │   └── static/                 # 静态资源（jQuery、jsTree，用于分发目录树）
 ├── nginx/
+│   ├── Dockerfile              # Nginx 镜像（含 tzdata 时区）
 │   └── nginx.conf              # Nginx 静态配置
 ├── copaw.Dockerfile            # CoPaw 镜像构建文件
 ├── data/                       # 挂载到宿主机的持久化目录（说明见上文「data 目录说明」）
 │   ├── admin.db                # SQLite 数据库（运行时自动创建）
 │   └── templates/              # 模板目录（working、working.secret 等，用于分发给各租户docker里copaw的 {工作目录} 和 {工作目录.secret}
 └── images/                     # (export 时生成)
-    ├── nginx-alpine.tar
+    ├── copaw-nginx.tar
     ├── copaw-admin.tar
     └── copaw-ampere.tar
 ```
