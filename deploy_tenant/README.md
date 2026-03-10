@@ -46,7 +46,7 @@
 ```env
 NGINX_PORT=80                          # Nginx 对外端口
 COOKIE_SECRET=改成随机字符串             # Cookie 签名密钥
-COPAW_IMAGE=copaw-tenant-ampere:latest        # CoPaw 租户版镜像名
+COPAW_IMAGE=gridpaw-tenant:latest              # GridPaw 租户版镜像名
 BASE_DATA_DIR=/data/copaw              # 用户数据根目录（需挂载到 admin 容器以便分发）
 COPAW_INTERNAL_PORT=8088               # CoPaw 容器内部监听端口（默认 8088，与 Nginx 代理目标一致，一般无需修改）
 TEMPLATES_DIR=templates                # 模板目录名（data/ 下，默认 templates）
@@ -100,7 +100,7 @@ vim .env                 # 编辑配置
 |------|------|------|
 | `copaw-nginx:latest` | nginx/Dockerfile | 网关路由（基于 nginx:alpine + tzdata） |
 | `copaw-admin:latest` | admin-service/Dockerfile | 认证 + 管理 |
-| `copaw-tenant-ampere:latest` | copaw.Dockerfile | CoPaw 智能助手（租户版） |
+| `gridpaw-tenant:latest` | copaw.Dockerfile | GridPaw 智能助手（租户版） |
 
 ## 日常管理
 
@@ -118,7 +118,7 @@ vim .env                 # 编辑配置
 
 | 命令 | 说明 |
 |------|------|
-| `build` | 构建全部镜像（nginx + copaw-admin + copaw-tenant-ampere） |
+| `build` | 构建全部镜像（nginx + copaw-admin + gridpaw-tenant） |
 | `up` | 启动 nginx + admin 服务 |
 | `down` | 停止所有服务 |
 | `restart` | 重启所有服务 |
@@ -228,7 +228,7 @@ deploy_tenant/
 └── images/                     # (export 时生成)
     ├── copaw-nginx.tar
     ├── copaw-admin.tar
-    └── copaw-tenant-ampere.tar
+    └── gridpaw-tenant.tar
 ```
 
 ## 故障排查
