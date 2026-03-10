@@ -92,4 +92,4 @@ CLAUDE.md
 *.tmp
 
 # 定制文档（不跟踪）
-custom_docs/
+dev_docs/
