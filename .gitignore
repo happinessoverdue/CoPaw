@@ -86,6 +86,7 @@ logs/
 .claude
 .cursor
 .cursorignore
+.agents
 openspec
 AGENTS.md
 CLAUDE.md
