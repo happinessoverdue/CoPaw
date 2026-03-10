@@ -38,6 +38,10 @@ RUN pip install --no-cache-dir .
 # Re-init working dir to pick up any new default files from this version.
 RUN copaw init --defaults --accept-security
 
+# Custom entrypoint: init working dir on first run when bind-mounted empty.
+COPY deploy_tenant/entrypoint.sh /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
+
 EXPOSE 8088
 
 CMD ["/entrypoint.sh"]

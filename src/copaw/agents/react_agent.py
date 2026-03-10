@@ -191,11 +191,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "desktop_screenshot": desktop_screenshot,
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
-<<<<<<< HEAD
             "get_token_usage": get_token_usage,
-=======
             "write_todos": create_write_todos_tool(self._env_context_dict),
->>>>>>> 20e243a (feat: add write_todos tool for agent plan management)
         }
 
         # Register only enabled tools

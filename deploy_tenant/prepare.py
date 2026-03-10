@@ -28,7 +28,7 @@ COMPOSE_FILE = SCRIPT_DIR / "docker-compose.yml"
 IMAGES_DIR = SCRIPT_DIR / "images"
 REPO_ROOT = SCRIPT_DIR.parent
 
-COPAW_IMAGE = os.environ.get("COPAW_IMAGE", "copaw-ampere:latest")
+COPAW_IMAGE = os.environ.get("COPAW_IMAGE", "copaw-tenant-ampere:latest")
 
 
 def _color(text: str, code: str) -> str:
@@ -137,7 +137,7 @@ def cmd_export() -> None:
     for name, filename in [
         ("copaw-nginx:latest", "copaw-nginx.tar"),
         ("copaw-admin:latest", "copaw-admin.tar"),
-        (COPAW_IMAGE, "copaw-ampere.tar"),
+        (COPAW_IMAGE, "copaw-tenant-ampere.tar"),
     ]:
         print(f"  -> {name}")
         run(["docker", "save", name, "-o", str(IMAGES_DIR / filename)])

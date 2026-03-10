@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 import aiofiles
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -48,7 +48,7 @@ ADMIN_COOKIE_NAME = "copaw_admin_session"
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 
-COPAW_IMAGE = os.environ.get("COPAW_IMAGE", "copaw-ampere:latest")
+COPAW_IMAGE = os.environ.get("COPAW_IMAGE", "copaw-tenant-ampere:latest")
 BASE_DATA_DIR = os.environ.get("BASE_DATA_DIR", "/data/copaw")
 COPAW_INTERNAL_PORT = int(os.environ.get("COPAW_INTERNAL_PORT", "8088"))
 DOCKER_NETWORK = os.environ.get("DOCKER_NETWORK", "copaw-multi-tenant-service_copaw-net")

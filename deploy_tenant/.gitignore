@@ -16,6 +16,7 @@ images/
 # vibe coding（AI 工具相关，均不跟踪）
 .claude
 .cursor
+.cursorignore
 openspec
 AGENTS.md
 CLAUDE.md

@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 IMAGES_DIR="${SCRIPT_DIR}/images"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-COPAW_IMAGE="${COPAW_IMAGE:-copaw-ampere:latest}"
+COPAW_IMAGE="${COPAW_IMAGE:-copaw-tenant-ampere:latest}"
 
 BUILD_TARGETS="nginx admin copaw"
 
@@ -108,7 +108,7 @@ cmd_export() {
     echo "  -> copaw-admin:latest"
     run docker save copaw-admin:latest -o "${IMAGES_DIR}/copaw-admin.tar"
     echo "  -> ${COPAW_IMAGE}"
-    run docker save "${COPAW_IMAGE}" -o "${IMAGES_DIR}/copaw-ampere.tar"
+    run docker save "${COPAW_IMAGE}" -o "${IMAGES_DIR}/copaw-tenant-ampere.tar"
 
     echo_green "==> Export complete. Files:"
     for f in $(ls -1 "${IMAGES_DIR}"/*.tar 2>/dev/null | sort); do
