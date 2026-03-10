@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import docker
 from docker.errors import APIError, NotFound
 
-logger = logging.getLogger("copaw-admin.docker")
+logger = logging.getLogger("gridpaw-admin.docker")
 
 _client: docker.DockerClient | None = None
 

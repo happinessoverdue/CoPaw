@@ -42,13 +42,13 @@ run() {
 # ---------------------------------------------------------------------------
 
 cmd_build_nginx() {
-    echo "==> Building nginx image: copaw-nginx:latest"
-    run docker build -f "${SCRIPT_DIR}/nginx/Dockerfile" -t copaw-nginx:latest "${SCRIPT_DIR}/nginx"
+    echo "==> Building nginx image: gridpaw-nginx:latest"
+    run docker build -f "${SCRIPT_DIR}/nginx/Dockerfile" -t gridpaw-nginx:latest "${SCRIPT_DIR}/nginx"
 }
 
 cmd_build_admin() {
-    echo "==> Building admin image: copaw-admin:latest"
-    run docker build -f "${SCRIPT_DIR}/admin-service/Dockerfile" -t copaw-admin:latest "${SCRIPT_DIR}"
+    echo "==> Building admin image: gridpaw-admin:latest"
+    run docker build -f "${SCRIPT_DIR}/admin-service/Dockerfile" -t gridpaw-admin:latest "${SCRIPT_DIR}"
 }
 
 cmd_build_copaw() {
@@ -87,8 +87,8 @@ cmd_build() {
     local built=""
     for t in "${targets[@]}"; do
         case "$t" in
-            nginx) built="${built:+${built}, }copaw-nginx:latest" ;;
-            admin) built="${built:+${built}, }copaw-admin:latest" ;;
+            nginx) built="${built:+${built}, }gridpaw-nginx:latest" ;;
+            admin) built="${built:+${built}, }gridpaw-admin:latest" ;;
             copaw) built="${built:+${built}, }${COPAW_IMAGE}" ;;
         esac
     done
@@ -103,10 +103,10 @@ cmd_export() {
     mkdir -p "${IMAGES_DIR}"
     echo "==> Exporting images to ${IMAGES_DIR}/ ..."
 
-    echo "  -> copaw-nginx:latest"
-    run docker save copaw-nginx:latest -o "${IMAGES_DIR}/copaw-nginx.tar"
-    echo "  -> copaw-admin:latest"
-    run docker save copaw-admin:latest -o "${IMAGES_DIR}/copaw-admin.tar"
+    echo "  -> gridpaw-nginx:latest"
+    run docker save gridpaw-nginx:latest -o "${IMAGES_DIR}/gridpaw-nginx.tar"
+    echo "  -> gridpaw-admin:latest"
+    run docker save gridpaw-admin:latest -o "${IMAGES_DIR}/gridpaw-admin.tar"
     echo "  -> ${COPAW_IMAGE}"
     run docker save "${COPAW_IMAGE}" -o "${IMAGES_DIR}/gridpaw-tenant.tar"
 
@@ -147,7 +147,7 @@ cmd_import() {
     fi
 
     echo_green "==> Import complete."
-    docker images | grep -E "nginx|copaw" || true
+    docker images | grep -E "nginx|gridpaw" || true
 }
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ import db
 import docker_manager as dm
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("copaw-admin")
+logger = logging.getLogger("gridpaw-admin")
 
 app = FastAPI(title="CoPaw Admin Service")
 
@@ -44,14 +44,14 @@ COOKIE_SECRET = os.environ.get("COOKIE_SECRET", "CHANGE_ME_TO_A_RANDOM_STRING")
 COOKIE_NAME = "copaw_instance"
 COOKIE_MAX_AGE = int(os.environ.get("COOKIE_MAX_AGE", "86400"))
 
-ADMIN_COOKIE_NAME = "copaw_admin_session"
+ADMIN_COOKIE_NAME = "gridpaw_admin_session"
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 
 COPAW_IMAGE = os.environ.get("COPAW_IMAGE", "gridpaw-tenant:latest")
 BASE_DATA_DIR = os.environ.get("BASE_DATA_DIR", "/data/copaw")
 COPAW_INTERNAL_PORT = int(os.environ.get("COPAW_INTERNAL_PORT", "8088"))
-DOCKER_NETWORK = os.environ.get("DOCKER_NETWORK", "copaw-multi-tenant-service_copaw-net")
+DOCKER_NETWORK = os.environ.get("DOCKER_NETWORK", "gridpaw-multi-tenant-service_gridpaw-net")
 INSTANCE_PREFIX = "copaw-instance-"
 
 # 分发功能：模板目录与租户目录（admin 容器内路径）

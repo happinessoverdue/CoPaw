@@ -61,21 +61,21 @@ BUILD_TARGETS = ("nginx", "admin", "copaw")
 
 
 def _build_nginx() -> None:
-    print("==> Building nginx image: copaw-nginx:latest")
+    print("==> Building nginx image: gridpaw-nginx:latest")
     run([
         "docker", "build",
         "-f", str(SCRIPT_DIR / "nginx" / "Dockerfile"),
-        "-t", "copaw-nginx:latest",
+        "-t", "gridpaw-nginx:latest",
         str(SCRIPT_DIR / "nginx"),
     ])
 
 
 def _build_admin() -> None:
-    print("==> Building admin image: copaw-admin:latest")
+    print("==> Building admin image: gridpaw-admin:latest")
     run([
         "docker", "build",
         "-f", str(SCRIPT_DIR / "admin-service" / "Dockerfile"),
-        "-t", "copaw-admin:latest",
+        "-t", "gridpaw-admin:latest",
         str(SCRIPT_DIR),
     ])
 
@@ -118,9 +118,9 @@ def cmd_build(targets: Optional[List[str]] = None) -> None:
     if to_build:
         built = []
         if "nginx" in to_build:
-            built.append("copaw-nginx:latest")
+            built.append("gridpaw-nginx:latest")
         if "admin" in to_build:
-            built.append("copaw-admin:latest")
+            built.append("gridpaw-admin:latest")
         if "copaw" in to_build:
             built.append(COPAW_IMAGE)
         print(green(f"    Built: {', '.join(built)}"))
@@ -135,8 +135,8 @@ def cmd_export() -> None:
     print(f"==> Exporting images to {IMAGES_DIR}/ ...")
 
     for name, filename in [
-        ("copaw-nginx:latest", "copaw-nginx.tar"),
-        ("copaw-admin:latest", "copaw-admin.tar"),
+        ("gridpaw-nginx:latest", "gridpaw-nginx.tar"),
+        ("gridpaw-admin:latest", "gridpaw-admin.tar"),
         (COPAW_IMAGE, "gridpaw-tenant.tar"),
     ]:
         print(f"  -> {name}")
@@ -175,7 +175,7 @@ def cmd_import(images_dir: Optional[Union[str, Path]] = None) -> None:
     print(green("==> Import complete."))
     result = subprocess.run(["docker", "images"], capture_output=True, text=True, check=False)
     for line in (result.stdout or "").splitlines():
-        if "nginx" in line or "copaw" in line:
+        if "nginx" in line or "gridpaw" in line:
             print(line)
 
 

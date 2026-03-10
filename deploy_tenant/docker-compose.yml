@@ -5,11 +5,11 @@
 # Configuration is read from .env (auto-loaded by compose).
 # Start with: ./prepare.sh up
 
-name: copaw-multi-tenant-service
+name: gridpaw-multi-tenant-service
 
 services:
   nginx:
-    image: copaw-nginx:latest
+    image: gridpaw-nginx:latest
     build:
       context: ./nginx
       dockerfile: Dockerfile
@@ -18,13 +18,13 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
-      - copaw-net
+      - gridpaw-net
     depends_on:
       - admin
     restart: unless-stopped
 
   admin:
-    image: copaw-admin:latest
+    image: gridpaw-admin:latest
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./admin-service:/app/admin-service # 管理的前后端、登录的前后端,都在这个目录下
@@ -37,15 +37,15 @@ services:
       - BASE_DATA_DIR=${BASE_DATA_DIR:-/Users/lilinxin/var/copaw_tenants_data}
       - TEMPLATES_DIR=${TEMPLATES_DIR:-templates}
       - COPAW_INTERNAL_PORT=${COPAW_INTERNAL_PORT:-8088}
-      - DOCKER_NETWORK=copaw-multi-tenant-service_copaw-net
+      - DOCKER_NETWORK=gridpaw-multi-tenant-service_gridpaw-net
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - SHARED_FILES_DIR=/app/shared_files
       - FILE_SERVICE_BASE_URL=${FILE_SERVICE_BASE_URL:-http://127.0.0.1}
       - NGINX_PORT=${NGINX_PORT:-8087}
     networks:
-      - copaw-net
+      - gridpaw-net
     restart: unless-stopped
 
 networks:
-  copaw-net:
+  gridpaw-net:
     driver: bridge

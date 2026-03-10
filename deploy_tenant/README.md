@@ -98,8 +98,8 @@ vim .env                 # 编辑配置
 
 | 镜像 | 来源 | 用途 |
 |------|------|------|
-| `copaw-nginx:latest` | nginx/Dockerfile | 网关路由（基于 nginx:alpine + tzdata） |
-| `copaw-admin:latest` | admin-service/Dockerfile | 认证 + 管理 |
+| `gridpaw-nginx:latest` | nginx/Dockerfile | 网关路由（基于 nginx:alpine + tzdata） |
+| `gridpaw-admin:latest` | admin-service/Dockerfile | 认证 + 管理 |
 | `gridpaw-tenant:latest` | copaw.Dockerfile | GridPaw 智能助手（租户版） |
 
 ## 日常管理
@@ -118,7 +118,7 @@ vim .env                 # 编辑配置
 
 | 命令 | 说明 |
 |------|------|
-| `build` | 构建全部镜像（nginx + copaw-admin + gridpaw-tenant） |
+| `build` | 构建全部镜像（gridpaw-nginx + gridpaw-admin + gridpaw-tenant） |
 | `up` | 启动 nginx + admin 服务 |
 | `down` | 停止所有服务 |
 | `restart` | 重启所有服务 |
@@ -226,8 +226,8 @@ deploy_tenant/
 │   ├── admin.db                # SQLite 数据库（运行时自动创建）
 │   └── templates/              # 模板目录（working、working.secret 等，用于分发给各租户docker里copaw的 {工作目录} 和 {工作目录.secret}
 └── images/                     # (export 时生成)
-    ├── copaw-nginx.tar
-    ├── copaw-admin.tar
+    ├── gridpaw-nginx.tar
+    ├── gridpaw-admin.tar
     └── gridpaw-tenant.tar
 ```
 
