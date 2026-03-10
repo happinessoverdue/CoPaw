@@ -174,7 +174,9 @@ const convertMessages = (
       while (i < messages.length && messages[i].role !== ROLE_USER) {
         outputMsgs.push(toOutputMessage(messages[i++]));
       }
-      if (outputMsgs.length) result.push(buildResponseCard(outputMsgs));
+      if (outputMsgs.length > 0) {
+        result.push(buildResponseCard(outputMsgs));
+      }
     }
   }
 

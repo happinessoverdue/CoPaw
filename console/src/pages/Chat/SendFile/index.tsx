@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button, Card, Typography, message, Tag } from "antd";
 import {
   CheckCircleOutlined,
@@ -20,13 +20,6 @@ interface FileInfo {
   filename: string;
 }
 
-const renderedSendFileCallIds = new Set<string>();
-let renderedSessionId = "";
-
-function getCurrentSessionId(): string {
-  const w = window as Window & { currentSessionId?: string };
-  return String(w.currentSessionId || "");
-}
 
 function parseNestedJson(input: unknown): unknown {
   let value = input;
@@ -56,63 +49,83 @@ function findFileInfo(data: SendFileRenderProps["data"]): FileInfo | null {
         ?.data?.call_id || ""
     ).trim(),
   );
-  for (const item of content) {
-    const toolName = item?.data?.name || "";
-    if (toolName !== "send_file_to_user") continue;
-    const parsed = parseNestedJson(item?.data?.output);
-    if (!Array.isArray(parsed)) continue;
-    const fileBlock = parsed.find(
-      (block: unknown) =>
-        typeof block === "object" &&
-        block !== null &&
-        ["file", "image", "audio", "video"].includes(
-          String((block as { type?: unknown }).type || ""),
-        ),
-    ) as
-      | {
-          type?: string;
-          source?: { type?: string; url?: string };
-          filename?: string;
-        }
-      | undefined;
 
-    const url = fileBlock?.source?.url;
-    if (!url || typeof url !== "string") continue;
-    const filename =
-      fileBlock?.filename && typeof fileBlock.filename === "string"
-        ? fileBlock.filename
-        : filenameFromUrl(url);
-    return { callId, url, filename };
+  // 兼容两种消息结构：
+  // 1. 实时流：同一 item 同时有 name 和 output
+  // 2. 历史加载：content[0] 为 tool_call（有 name），content[1] 为 tool_output（有 output）
+  const first = content[0] as { data?: { name?: string; output?: unknown } } | undefined;
+  const second = content[1] as { data?: { name?: string; output?: unknown } } | undefined;
+  const isSendFileFromFirst = first?.data?.name === "send_file_to_user";
+  const outputSource = second?.data?.output ?? first?.data?.output;
+
+  if (!isSendFileFromFirst) {
+    // 若 content[0] 不是 send_file_to_user，再尝试从其他 item 查找（兼容旧结构）
+    for (const item of content) {
+      const toolName = item?.data?.name || "";
+      if (toolName !== "send_file_to_user") continue;
+      const parsed = parseNestedJson(item?.data?.output);
+      if (!Array.isArray(parsed)) continue;
+      const fileBlock = parsed.find(
+        (block: unknown) =>
+          typeof block === "object" &&
+          block !== null &&
+          ["file", "image", "audio", "video"].includes(
+            String((block as { type?: unknown }).type || ""),
+          ),
+      ) as
+        | {
+            type?: string;
+            source?: { type?: string; url?: string };
+            filename?: string;
+          }
+        | undefined;
+
+      const url = fileBlock?.source?.url;
+      if (!url || typeof url !== "string") continue;
+      const filename =
+        fileBlock?.filename && typeof fileBlock.filename === "string"
+          ? fileBlock.filename
+          : filenameFromUrl(url);
+      return { callId, url, filename };
+    }
+    return null;
   }
-  return null;
+
+  const parsed = parseNestedJson(outputSource);
+  if (!Array.isArray(parsed)) return null;
+  const fileBlock = parsed.find(
+    (block: unknown) =>
+      typeof block === "object" &&
+      block !== null &&
+      ["file", "image", "audio", "video"].includes(
+        String((block as { type?: unknown }).type || ""),
+      ),
+  ) as
+    | {
+        type?: string;
+        source?: { type?: string; url?: string };
+        filename?: string;
+      }
+    | undefined;
+
+  const url = fileBlock?.source?.url;
+  if (!url || typeof url !== "string") return null;
+  const filename =
+    fileBlock?.filename && typeof fileBlock.filename === "string"
+      ? fileBlock.filename
+      : filenameFromUrl(url);
+  return { callId, url, filename };
 }
 
 export default function SendFileRender(props: SendFileRenderProps) {
   const [msgApi, contextHolder] = message.useMessage();
   const [downloading, setDownloading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
-  const hasRegisteredRef = useRef(false);
   const fileInfo = useMemo(() => findFileInfo(props.data), [props.data]);
-
-  if (!fileInfo) return null;
-
-  const currentSessionId = getCurrentSessionId();
-  if (renderedSessionId !== currentSessionId) {
-    renderedSendFileCallIds.clear();
-    renderedSessionId = currentSessionId;
-  }
 
   const status = String(props.data?.status || "").toLowerCase();
   if (["in_progress", "running", "pending"].includes(status)) return null;
-
-  if (fileInfo.callId && !hasRegisteredRef.current) {
-    const scopedCallId = `${currentSessionId}:${fileInfo.callId}`;
-    if (renderedSendFileCallIds.has(scopedCallId)) {
-      return null;
-    }
-    renderedSendFileCallIds.add(scopedCallId);
-    hasRegisteredRef.current = true;
-  }
+  if (!fileInfo) return null;
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -176,9 +189,14 @@ export default function SendFileRender(props: SendFileRenderProps) {
         size="small"
         style={{
           width: "100%",
-          maxWidth: 520,
-          borderRadius: 10,
-          borderColor: "#e8e8e8",
+          borderRadius: 12,
+          overflow: "hidden",
+          background: "rgba(248, 242, 255, 0.78)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          border: "1px solid rgba(196, 181, 253, 0.35)",
+          boxShadow:
+            "0 2px 12px rgba(139, 92, 246, 0.06), inset 0 1px 0 rgba(255,255,255,0.6)",
         }}
       >
         <div

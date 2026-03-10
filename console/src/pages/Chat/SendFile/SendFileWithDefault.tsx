@@ -34,7 +34,14 @@ export const SendFileWithDefault: FC<SendFileWithDefaultProps> = ({ data }) => {
   const output = second?.data?.output ?? "";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+        width: "100%",
+      }}
+    >
       <ToolCall
         loading={loading}
         defaultOpen={false}
