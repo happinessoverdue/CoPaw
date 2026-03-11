@@ -198,7 +198,7 @@ export default function ModelSelector() {
       onOpenChange={handleOpenChange}
       dropdownRender={() => dropdownContent}
       trigger={["click"]}
-      placement="bottomLeft"
+      placement="bottomRight"
     >
       <div
         className={[styles.trigger, open ? styles.triggerActive : ""].join(" ")}
