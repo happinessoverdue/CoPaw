@@ -1,51 +1,52 @@
-# CoPaw Multi-Tenant Service
+# GridPaw Multi-Tenant Service
 # Static compose file — only nginx gateway + admin service.
-# CoPaw user instances are created dynamically by admin via Docker API.
+# GridPaw user instances are created dynamically by admin via Docker API.
 #
 # Configuration is read from .env (auto-loaded by compose).
 # Start with: ./prepare.sh up
 
+# Compose 项目名，决定资源前缀（如网络名变为 {name}_gridpaw-net）
 name: gridpaw-multi-tenant-service
 
-services:
-  nginx:
-    image: gridpaw-nginx:latest
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
-    ports:
-      - "${NGINX_PORT:-8087}:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    networks:
-      - gridpaw-net
-    depends_on:
-      - admin
-    restart: unless-stopped
-
-  admin:
-    image: gridpaw-admin:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./admin-service:/app/admin-service # 管理的前后端、登录的前后端,都在这个目录下
-      - ./data:/app/data # 数据目录,包含管理员的数据库,租户的模板等
-      - ${BASE_DATA_DIR}:/app/tenants:rw # 租户数据目录,分发时写入
-      - ${SHARED_FILES_DIR:-./shared_files}:/app/shared_files:rw # 共享文件服务存储
-    environment:
-      - COOKIE_SECRET=${COOKIE_SECRET:-CHANGE_ME_TO_A_RANDOM_STRING}
-      - COPAW_IMAGE=${COPAW_IMAGE:-gridpaw-tenant:latest}
-      - BASE_DATA_DIR=${BASE_DATA_DIR:-/Users/lilinxin/var/copaw_tenants_data}
-      - TEMPLATES_DIR=${TEMPLATES_DIR:-templates}
-      - COPAW_INTERNAL_PORT=${COPAW_INTERNAL_PORT:-8088}
-      - DOCKER_NETWORK=gridpaw-multi-tenant-service_gridpaw-net
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
-      - SHARED_FILES_DIR=/app/shared_files
-      - FILE_SERVICE_BASE_URL=${FILE_SERVICE_BASE_URL:-http://127.0.0.1}
-      - NGINX_PORT=${NGINX_PORT:-8087}
-    networks:
-      - gridpaw-net
-    restart: unless-stopped
-
+# 网络定义：nginx、admin、租户容器均需加入此网络以互通
 networks:
   gridpaw-net:
-    driver: bridge
+    driver: bridge  # 桥接网络，同一主机内容器可互相访问
+
+services:
+  # 网关服务：唯一对外端口，认证代理 + 动态路由
+  nginx:
+    image: gridpaw-nginx:latest  # 镜像名，需先 build
+    build:
+      context: ./nginx           # 构建上下文目录
+      dockerfile: Dockerfile     # Dockerfile 路径（相对于 context）
+    ports:
+      - "${NGINX_PORT:-8087}:80"  # 宿主机端口:容器端口（nginx在容器内监听80端口,不可更改,nginx.conf中写死了监听80端口）
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro  # Nginx 配置文件，只读
+    networks:
+      - gridpaw-net  # 加入网络，与 admin 互通
+    depends_on:
+      - admin        # 启动前等待 admin 就绪
+    restart: unless-stopped  # 退出时自动重启（除非手动停止）
+
+  # 管理服务：认证 + 租户管理 API + Web 面板 + 共享文件服务
+  admin:
+    image: gridpaw-admin:latest  # 镜像名，需先 build
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # 挂载 Docker 套接字，用于创建/管理租户容器
+      - ./admin-service:/app/admin-service        # 管理前后端、登录页等静态资源
+      - ${GRIDPAW_ADMIN_DATA_DIR:-/root/var/gridpaw/admin_data}:/app/data:rw  # Admin服务的数据目录，里面存放数据库和模版目录
+      - ${TENANTS_DATA_BASE_DIR:-/root/var/gridpaw/tenants_data}:/app/tenants:rw           # 所有租户的数据根目录，分发时写入，在该目录下每个租户一个子目录，子目录名即为租户id(称之为租户数据目录，租户数据目录下会有working和working.secret两个子目录，分别存放智能体工作目录和敏感配置目录)
+      - ${SHARED_FILES_DATA_DIR:-/root/var/gridpaw/shared_files}:/app/shared_files:rw   # 共享文件服务的文件存放目录，用于共享文件服务读写共享文件
+    environment:
+      - TENANT_IMAGE=${TENANT_IMAGE:-gridpaw-tenant:latest}          # 租户容器镜像名
+      - INSTANCE_PREFIX=${INSTANCE_PREFIX:-gridpaw-instance-}        # 租户容器名前缀
+      - TENANTS_DATA_BASE_DIR=${TENANTS_DATA_BASE_DIR:-/root/var/gridpaw/tenants_data}    # 租户数据宿主机路径
+      - GRIDPAW_ADMIN_DATA_DIR=${GRIDPAW_ADMIN_DATA_DIR:-/root/var/gridpaw/admin_data}     # Admin 数据宿主机路径
+      - DOCKER_NETWORK=gridpaw-multi-tenant-service_gridpaw-net     # 租户容器需加入的网络（由项目名+网络名决定）
+      - FILE_SERVICE_BASE_URL=${FILE_SERVICE_BASE_URL:-http://127.0.0.1}  # 共享文件对外的IP地址，无需填写端口。因为共享文件服务与admin服务是同一个fastapi应用实现的，一起被nginx代理做了统一的对外代理。
+      - NGINX_PORT=${NGINX_PORT:-8087}               # Nginx 端口，用于拼接共享文件下载 URL
+    networks:
+      - gridpaw-net  # 加入网络，与 nginx、租户容器互通
+    restart: unless-stopped  # 退出时自动重启

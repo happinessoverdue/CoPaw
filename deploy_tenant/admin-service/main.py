@@ -1,7 +1,7 @@
-"""CoPaw multi-tenant admin service.
+"""GridPaw multi-tenant admin service.
 
-Combines authentication gateway (for CoPaw users) and management API
-(for administrators). Tenant data is stored in SQLite; CoPaw containers
+Combines authentication gateway (for GridPaw users) and management API
+(for administrators). Tenant data is stored in SQLite; GridPaw containers
 are managed dynamically via the Docker API.
 """
 
@@ -13,8 +13,9 @@ import os
 import re
 import shutil
 import time
-from datetime import datetime
 from pathlib import Path
+import secrets as _secrets
+from datetime import datetime
 from urllib.parse import quote, urlparse
 
 import aiofiles
@@ -28,42 +29,62 @@ import docker_manager as dm
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gridpaw-admin")
 
-app = FastAPI(title="CoPaw Admin Service")
+app = FastAPI(title="GridPaw Admin Service")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 if STATIC_DIR.is_dir():
     app.mount("/admin/static", StaticFiles(directory=str(STATIC_DIR)), name="admin-static")
 
 # ---------------------------------------------------------------------------
-# Configuration from environment
+# Configuration — 由 .env 经 docker-compose 注入的可配置项
 # ---------------------------------------------------------------------------
 
-LOGIN_HTML = Path(os.environ.get("LOGIN_HTML", "/app/admin-service/login.html"))
-ADMIN_HTML = Path(os.environ.get("ADMIN_HTML", "/app/admin-service/admin.html"))
-COOKIE_SECRET = os.environ.get("COOKIE_SECRET", "CHANGE_ME_TO_A_RANDOM_STRING")
-COOKIE_NAME = "copaw_instance"
-COOKIE_MAX_AGE = int(os.environ.get("COOKIE_MAX_AGE", "86400"))
-
-ADMIN_COOKIE_NAME = "gridpaw_admin_session"
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
-
-COPAW_IMAGE = os.environ.get("COPAW_IMAGE", "gridpaw-tenant:latest")
-BASE_DATA_DIR = os.environ.get("BASE_DATA_DIR", "/data/copaw")
-COPAW_INTERNAL_PORT = int(os.environ.get("COPAW_INTERNAL_PORT", "8088"))
-DOCKER_NETWORK = os.environ.get("DOCKER_NETWORK", "gridpaw-multi-tenant-service_gridpaw-net")
-INSTANCE_PREFIX = "copaw-instance-"
-
-# 分发功能：模板目录与租户目录（admin 容器内路径）
-TEMPLATES_DIR = os.environ.get("TEMPLATES_DIR", "templates")
-TEMPLATES_ROOT = Path("/app/data") / TEMPLATES_DIR
-TENANTS_ROOT = Path("/app/tenants")
-
-# 共享文件服务（供 CoPaw 工具/外部服务存储大文件，前端可读取展示）
-SHARED_FILES_DIR = Path(os.environ.get("SHARED_FILES_DIR", "/app/shared_files"))
+# 租户容器使用的 Docker 镜像名，须与 prepare.sh build 构建的镜像名一致（两者均从 .env 读取）。
+# Nginx 对外端口，用于补充共享文件下载 URL 的端口部分。
+_NGINX_PORT     = os.environ.get("NGINX_PORT", "")
+# 租户容器使用的 Docker 镜像名，须与 prepare.sh build 构建的镜像名一致（两者均从 .env 读取）。
+TENANT_IMAGE    = os.environ.get("TENANT_IMAGE", "gridpaw-tenant:latest")
+# 宿主机上租户数据根目录，每台机器路径不同，用于构造容器 volume 挂载路径。
+TENANTS_DATA_BASE_DIR = os.environ.get("TENANTS_DATA_BASE_DIR", "/var/gridpaw/tenants_data")
+# 租户容器名前缀，容器名为 {INSTANCE_PREFIX}{user_id}（如 gridpaw-instance-zhangsan）。
+INSTANCE_PREFIX = os.environ.get("INSTANCE_PREFIX", "gridpaw-instance-")
+# 租户容器加入的 Docker 网络名，由 compose 直接注入（值由 compose 项目名 + 网络别名决定）。
+# 若修改 docker-compose.yml 的 name: 或 networks: 字段，需同步更新此处默认值。
+DOCKER_NETWORK  = os.environ.get("DOCKER_NETWORK", "gridpaw-multi-tenant-service_gridpaw-net")
+# 共享文件服务对外访问的 scheme+host（如 http://192.168.1.10），用于拼接下载 URL。
 _FILE_SERVICE_BASE_RAW = os.environ.get("FILE_SERVICE_BASE_URL", "").rstrip("/")
-_NGINX_PORT = os.environ.get("NGINX_PORT", "")
+# 宿主机上 Admin 数据目录，用于错误提示中的路径说明（如模板目录位置）。
+GRIDPAW_ADMIN_DATA_DIR = os.environ.get("GRIDPAW_ADMIN_DATA_DIR", "/root/var/gridpaw/admin_data")
 
+
+# ---------------------------------------------------------------------------
+# Configuration — 写死的固定值（容器内部结构决定，无需外部配置）
+# ---------------------------------------------------------------------------
+
+# 容器内文件路径（由镜像目录结构和 docker-compose volume 挂载决定，不随部署变化）
+# 租户容器内部监听端口,与 nginx.conf proxy_pass 目标端口耦合，两者须始终保持一致。只在docker网络里可见，并未映射到宿主机端口，外部只能通过nginx的统一代理访问，无法直接访问。
+TENANT_INTERNAL_PORT = 8088
+
+TENANTS_ROOT     = Path("/app/tenants")                  # 租户数据挂载点（TENANTS_DATA_BASE_DIR 挂载到此）
+SHARED_FILES_DATA_DIR = Path("/app/shared_files")             # 共享文件存放目录的挂载点,用于共享文件服务读写共享文件
+
+DB_PATH        = Path("/app/data/db/admin.db")               # SQLite 数据库(GRIDPAW_ADMIN_DATA_DIR/db/)
+TEMPLATES_ROOT = Path("/app/data/tenant_working_templates")  # 模板根目录，对标租户容器内 /app（智能体工作目录 /app/working 与 /app/working.secret 的父目录）
+LOGIN_HTML     = Path("/app/admin-service/login.html")    # 用户登录页
+ADMIN_HTML     = Path("/app/admin-service/admin.html")    # 管理面板页
+
+# 管理员账号（内网部署，固定值）
+ADMIN_USERNAME    = "admin"
+ADMIN_PASSWORD    = "admin"
+ADMIN_COOKIE_NAME = "gridpaw_admin_session"  # 管理员会话 Cookie 名
+
+# 用户会话 Cookie 配置
+# 登录成功后由 POST /auth/login 通过 response.set_cookie 写入浏览器，存签名后的 instance 名（如 gridpaw-instance-user1）。
+# /auth/check 读取此 Cookie、校验后设置响应头 X-GridPaw-Instance，nginx auth_request 据此将请求转发到对应租户容器。
+# 修改 COOKIE_NAME 或 /auth/check 的响应头名时，须同步修改 nginx.conf 中 auth_request_set 的 $upstream_http_x_gridpaw_instance。
+COOKIE_NAME    = "gridpaw_instance"
+COOKIE_SECRET  = _secrets.token_hex(32) # Cookie 签名密钥，每次启动随机生成。内网部署可接受；代价是重启后所有会话失效。
+COOKIE_MAX_AGE = 86400                  # 用户会话 Cookie 有效期，24 小时
 
 # ---------------------------------------------------------------------------
 # Cookie helpers (shared between user auth and admin auth)
@@ -97,11 +118,17 @@ def _verify_cookie(signed: str, max_age: int = COOKIE_MAX_AGE) -> str | None:
 # Startup
 # ---------------------------------------------------------------------------
 
+# 租户数据库实例，在 startup 中初始化，之后在所有请求处理中复用。
+tenant_db: db.TenantDB
+
 @app.on_event("startup")
 async def startup():
-    db.init_db()
+    global tenant_db
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)  # 确保 db 目录存在（SQLite 不创建父目录）
+    TEMPLATES_ROOT.mkdir(parents=True, exist_ok=True)  # 确保模板根目录存在，便于首次部署
+    tenant_db = db.TenantDB(db_path=DB_PATH, instance_prefix=INSTANCE_PREFIX, tenants_data_base_dir=TENANTS_DATA_BASE_DIR)
     dm.init_client()
-    logger.info("Admin service started. DB: %s", db.DB_PATH)
+    logger.info("Admin service started. DB: %s", DB_PATH)
 
 
 # ===================================================================
@@ -110,7 +137,7 @@ async def startup():
 
 def _load_users() -> dict:
     """Build user lookup from SQLite."""
-    tenants = db.get_all_tenants()
+    tenants = tenant_db.get_all_tenants()
     users = {}
     for t in tenants:
         uid = t["user_id"]
@@ -169,7 +196,7 @@ async def check(request: Request):
     instance = _verify_cookie(cookie) if cookie else None
     if instance:
         response = Response(status_code=200)
-        response.headers["X-CoPaw-Instance"] = instance
+        response.headers["X-GridPaw-Instance"] = instance
         return response
     return Response(status_code=401)
 
@@ -213,7 +240,7 @@ async def admin_login_page(request: Request):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>CoPaw 管理后台 - 登录</title>
+<title>GridPaw 管理后台 - 登录</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{min-height:100vh;display:flex;align-items:center;justify-content:center;
@@ -240,7 +267,7 @@ background:rgba(248,113,113,0.1);border-radius:6px}}
 </head>
 <body>
 <div class="login-container">
-<div class="login-header"><h1>CoPaw 管理后台</h1><p>请输入管理员账号登录</p></div>
+<div class="login-header"><h1>GridPaw 管理后台</h1><p>请输入管理员账号登录</p></div>
 <!-- ERROR_PLACEHOLDER -->
 <form action="/admin/login" method="POST">
 <div class="form-group"><label for="username">用户名</label>
@@ -270,7 +297,7 @@ async def admin_login(username: str = Form(...), password: str = Form(...)):
     logger.warning("Failed admin login: %s", username)
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>CoPaw 管理后台 - 登录</title>
+<title>GridPaw 管理后台 - 登录</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{min-height:100vh;display:flex;align-items:center;justify-content:center;
@@ -295,7 +322,7 @@ background:#3b82f6;border:none;border-radius:8px;cursor:pointer;transition:backg
 background:rgba(248,113,113,0.1);border-radius:6px}}
 </style></head><body>
 <div class="login-container">
-<div class="login-header"><h1>CoPaw 管理后台</h1><p>请输入管理员账号登录</p></div>
+<div class="login-header"><h1>GridPaw 管理后台</h1><p>请输入管理员账号登录</p></div>
 <p class="error">用户名或密码错误</p>
 <form action="/admin/login" method="POST">
 <div class="form-group"><label for="username">用户名</label>
@@ -312,6 +339,28 @@ background:rgba(248,113,113,0.1);border-radius:6px}}
 async def admin_logout():
     response = RedirectResponse("/admin/login", status_code=303)
     response.delete_cookie(ADMIN_COOKIE_NAME, path="/admin")
+    return response
+
+
+@app.get("/admin/impersonate/{user_id}")
+async def admin_impersonate(user_id: str, request: Request):
+    """管理员代为登录：在新标签页以指定租户身份打开 GridPaw 页面。"""
+    if not _verify_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    tenant = tenant_db.get_tenant(user_id)
+    if not tenant:
+        return HTMLResponse(
+            f"<h1>租户不存在</h1><p>user_id: {user_id}</p><a href='/admin/'>返回管理</a>",
+            status_code=404,
+        )
+    instance = f"{INSTANCE_PREFIX}{user_id}"
+    signed = _sign_cookie(instance)
+    response = RedirectResponse("/", status_code=303)
+    response.set_cookie(
+        key=COOKIE_NAME, value=signed, max_age=COOKIE_MAX_AGE,
+        httponly=True, samesite="lax", path="/",
+    )
+    logger.info("Admin impersonating tenant: %s -> %s", user_id, instance)
     return response
 
 
@@ -345,8 +394,8 @@ async def api_list_tenants(request: Request):
     if denied:
         return denied
 
-    tenants = db.get_all_tenants()
-    statuses = dm.get_all_instance_statuses()
+    tenants = tenant_db.get_all_tenants()
+    statuses = dm.get_all_instance_statuses(prefix=INSTANCE_PREFIX)
 
     result = []
     for t in tenants:
@@ -362,7 +411,7 @@ async def api_list_tenants(request: Request):
             "container": container_info,
         })
 
-    return {"tenants": result}
+    return {"tenants": result, "config": {"instance_prefix": INSTANCE_PREFIX}}
 
 
 @app.get("/admin/api/tenants/{user_id}")
@@ -374,15 +423,15 @@ async def api_get_tenant(user_id: str, request: Request):
     if denied:
         return denied
 
-    tenant = db.get_tenant(user_id)
+    tenant = tenant_db.get_tenant(user_id)
     if not tenant:
         return JSONResponse({"error": f"租户 '{user_id}' 不存在"}, status_code=404)
 
     # 优先使用数据库中的值，否则按约定计算
     container_name = tenant.get("container_name") or f"{INSTANCE_PREFIX}{user_id}"
     default_mounts = tenant.get("default_mounts") or [
-        {"host": f"{BASE_DATA_DIR}/{user_id}/working", "bind": "/app/working", "mode": "rw"},
-        {"host": f"{BASE_DATA_DIR}/{user_id}/working.secret", "bind": "/app/working.secret", "mode": "rw"},
+        {"host": f"{TENANTS_DATA_BASE_DIR}/{user_id}/working", "bind": "/app/working", "mode": "rw"},
+        {"host": f"{TENANTS_DATA_BASE_DIR}/{user_id}/working.secret", "bind": "/app/working.secret", "mode": "rw"},
     ]
     default_mount_host = default_mounts[0].get("host", "") if default_mounts else ""
     extra_mounts = tenant.get("extra_mounts", [])
@@ -428,13 +477,8 @@ async def api_add_tenant(request: Request):
     pw = body.get("password", "")
     env = body.get("env")
     extra_mounts = body.get("extra_mounts")
-    container_name = f"{INSTANCE_PREFIX}{uid}"
-    default_mounts = [
-        {"host": f"{BASE_DATA_DIR}/{uid}/working", "bind": "/app/working", "mode": "rw"},
-        {"host": f"{BASE_DATA_DIR}/{uid}/working.secret", "bind": "/app/working.secret", "mode": "rw"},
-    ]
 
-    ok, msg = db.add_tenant(uid, uname, pw, env, extra_mounts, container_name=container_name, default_mounts=default_mounts)
+    ok, msg = tenant_db.add_tenant(uid, uname, pw, env, extra_mounts)
     if ok:
         return {"ok": True, "message": f"租户 '{uid}' 创建成功"}
     return JSONResponse({"ok": False, "message": msg}, status_code=400)
@@ -447,7 +491,7 @@ async def api_update_tenant(user_id: str, request: Request):
         return denied
 
     body = await request.json()
-    ok, msg = db.update_tenant(
+    ok, msg = tenant_db.update_tenant(
         user_id,
         user_name=body.get("user_name"),
         password=body.get("password"),
@@ -469,7 +513,7 @@ async def api_delete_tenant(user_id: str, request: Request):
     dm.stop_container(container_name)
     dm.remove_container(container_name)
 
-    ok, msg = db.delete_tenant(user_id)
+    ok, msg = tenant_db.delete_tenant(user_id)
     if ok:
         return {"ok": True, "message": f"租户 '{user_id}' 已删除（容器已清理）"}
     return JSONResponse({"ok": False, "message": msg}, status_code=400)
@@ -486,7 +530,7 @@ async def api_import_tenants(request: Request):
     if not isinstance(tenant_list, list):
         return JSONResponse({"ok": False, "message": "tenants 必须是数组"}, status_code=400)
 
-    count, errors = db.import_tenants(tenant_list)
+    count, errors = tenant_db.import_tenants(tenant_list)
     return {
         "ok": True,
         "imported": count,
@@ -505,26 +549,26 @@ async def api_start_container(user_id: str, request: Request):
     if denied:
         return denied
 
-    tenant = db.get_tenant(user_id)
+    tenant = tenant_db.get_tenant(user_id)
     if not tenant:
         return JSONResponse({"ok": False, "message": f"租户 '{user_id}' 不存在"}, status_code=404)
 
     container_name = f"{INSTANCE_PREFIX}{user_id}"
-    env = {"COPAW_PORT": str(COPAW_INTERNAL_PORT)}
+    env = {"COPAW_PORT": str(TENANT_INTERNAL_PORT)}
     if tenant.get("env"):
         env.update(tenant["env"])
     extra_mounts = tenant.get("extra_mounts") or []
 
     ok, msg = dm.create_and_start_container(
         container_name=container_name,
-        image=COPAW_IMAGE,
-        data_dir=f"{BASE_DATA_DIR}/{user_id}/working",
-        port=COPAW_INTERNAL_PORT,
+        image=TENANT_IMAGE,
+        data_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working",
+        port=TENANT_INTERNAL_PORT,
         network=DOCKER_NETWORK,
         env=env,
         extra_volumes=extra_mounts,
         force_recreate=True,
-        secret_dir=f"{BASE_DATA_DIR}/{user_id}/working.secret",
+        secret_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working.secret",
     )
     if ok:
         return {"ok": True, "message": f"容器 '{container_name}' 已启动"}
@@ -551,29 +595,29 @@ async def api_restart_container(user_id: str, request: Request):
     if denied:
         return denied
 
-    tenant = db.get_tenant(user_id)
+    tenant = tenant_db.get_tenant(user_id)
     if not tenant:
         return JSONResponse({"ok": False, "message": f"租户 '{user_id}' 不存在"}, status_code=404)
 
     container_name = f"{INSTANCE_PREFIX}{user_id}"
-    env = {"COPAW_PORT": str(COPAW_INTERNAL_PORT)}
+    env = {"COPAW_PORT": str(TENANT_INTERNAL_PORT)}
     if tenant.get("env"):
         env.update(tenant["env"])
     extra_mounts = tenant.get("extra_mounts") or []
 
     ok, msg = dm.create_and_start_container(
         container_name=container_name,
-        image=COPAW_IMAGE,
-        data_dir=f"{BASE_DATA_DIR}/{user_id}/working",
-        port=COPAW_INTERNAL_PORT,
+        image=TENANT_IMAGE,
+        data_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working",
+        port=TENANT_INTERNAL_PORT,
         network=DOCKER_NETWORK,
         env=env,
         extra_volumes=extra_mounts,
         force_recreate=True,
-        secret_dir=f"{BASE_DATA_DIR}/{user_id}/working.secret",
+        secret_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working.secret",
     )
     if ok:
-        return {"ok": True, "message": f"容器 '{container_name}' 已重启"}
+        return {"ok": True, "message": f"容器 '{container_name}' 已重建"}
     return JSONResponse({"ok": False, "message": msg}, status_code=400)
 
 
@@ -618,8 +662,8 @@ async def api_batch_containers(request: Request):
     action = body.get("action", "")
     user_ids = body.get("user_ids", [])
 
-    if action not in ("start", "stop"):
-        return JSONResponse({"ok": False, "message": "action 必须是 start 或 stop"}, status_code=400)
+    if action not in ("start", "stop", "restart"):
+        return JSONResponse({"ok": False, "message": "action 必须是 start、stop 或 restart"}, status_code=400)
     if not user_ids:
         return JSONResponse({"ok": False, "message": "user_ids 不能为空"}, status_code=400)
 
@@ -627,19 +671,35 @@ async def api_batch_containers(request: Request):
     for uid in user_ids:
         container_name = f"{INSTANCE_PREFIX}{uid}"
         if action == "start":
-            tenant = db.get_tenant(uid)
+            tenant = tenant_db.get_tenant(uid)
             if not tenant:
                 results.append({"user_id": uid, "ok": False, "message": f"租户 '{uid}' 不存在"})
                 continue
-            env = {"COPAW_PORT": str(COPAW_INTERNAL_PORT)}
+            env = {"COPAW_PORT": str(TENANT_INTERNAL_PORT)}
             if tenant.get("env"):
                 env.update(tenant["env"])
             extra_mounts = tenant.get("extra_mounts") or []
             ok, msg = dm.create_and_start_container(
-                container_name=container_name, image=COPAW_IMAGE,
-                data_dir=f"{BASE_DATA_DIR}/{uid}/working", port=COPAW_INTERNAL_PORT,
+                container_name=container_name, image=TENANT_IMAGE,
+                data_dir=f"{TENANTS_DATA_BASE_DIR}/{uid}/working", port=TENANT_INTERNAL_PORT,
                 network=DOCKER_NETWORK, env=env, extra_volumes=extra_mounts,
-                secret_dir=f"{BASE_DATA_DIR}/{uid}/working.secret",
+                secret_dir=f"{TENANTS_DATA_BASE_DIR}/{uid}/working.secret",
+            )
+        elif action == "restart":
+            tenant = tenant_db.get_tenant(uid)
+            if not tenant:
+                results.append({"user_id": uid, "ok": False, "message": f"租户 '{uid}' 不存在"})
+                continue
+            env = {"COPAW_PORT": str(TENANT_INTERNAL_PORT)}
+            if tenant.get("env"):
+                env.update(tenant["env"])
+            extra_mounts = tenant.get("extra_mounts") or []
+            ok, msg = dm.create_and_start_container(
+                container_name=container_name, image=TENANT_IMAGE,
+                data_dir=f"{TENANTS_DATA_BASE_DIR}/{uid}/working", port=TENANT_INTERNAL_PORT,
+                network=DOCKER_NETWORK, env=env, extra_volumes=extra_mounts,
+                force_recreate=True,
+                secret_dir=f"{TENANTS_DATA_BASE_DIR}/{uid}/working.secret",
             )
         else:
             ok, msg = dm.stop_container(container_name)
@@ -652,10 +712,41 @@ async def api_batch_containers(request: Request):
 # PART 6: Admin API — Template Distribution
 # ===================================================================
 
+# 快捷分发预设：每个预设对应模板内要分发的相对路径。目标为各租户 working.secret。
+PRESET_PATHS = {
+    "llm_config": ["working.secret/providers.json"],
+    "env_vars": ["working.secret/envs.json"],
+}
+
+
+def _get_template_secret_dir_hint() -> str:
+    """返回模板 working.secret 的宿主机路径提示，用于错误信息。"""
+    return f"{GRIDPAW_ADMIN_DATA_DIR.rstrip('/')}/tenant_working_templates/working.secret/"
+
+
+def _validate_preset_files(preset_paths: list[str]) -> tuple[bool, str]:
+    """
+    校验预设路径对应的源文件均存在。
+    返回 (ok, error_message)。ok 为 True 时 error_message 为空。
+    """
+    missing = []
+    for rel in preset_paths:
+        full = TEMPLATES_ROOT / rel
+        if not full.exists() or not full.is_file():
+            missing.append(rel.split("/")[-1])
+    if not missing:
+        return True, ""
+    hint = _get_template_secret_dir_hint()
+    files_str = "、".join(sorted(set(missing)))
+    return False, (
+        f"模板目录下缺少以下文件: {files_str}。"
+        f"请在目录 {hint} 下创建并填写这些文件。"
+    )
+
 
 def _build_tree_node(p: Path, rel_path: str) -> dict:
     """递归构建目录树节点，path 为相对于 TEMPLATES_ROOT 的路径。"""
-    name = p.name or TEMPLATES_DIR
+    name = p.name or TEMPLATES_ROOT.name
     is_dir = p.is_dir()
     node = {"name": name, "path": rel_path, "is_dir": is_dir}
     if is_dir:
@@ -717,27 +808,46 @@ async def api_templates_tree(request: Request):
 
 @app.post("/admin/api/distribute")
 async def api_distribute(request: Request):
-    """将选中的模板文件/目录分发到各租户。勾选目录即递归包含其下所有内容，覆盖已存在文件。"""
+    """将选中的模板文件/目录分发到各租户。勾选目录即递归包含其下所有内容，覆盖已存在文件。
+    支持 presets 快捷分发：llm_config（envs.json+providers.json）、env_vars（envs.json）。
+    """
     denied = _require_admin(request)
     if denied:
         return denied
 
     body = await request.json()
     tenant_ids = body.get("tenant_ids", [])
-    paths = body.get("paths", [])
+    paths = list(body.get("paths", []))
+    presets = body.get("presets", [])
+
+    # 将预设路径合并到 paths（去重）
+    preset_paths = []
+    for preset_id in presets:
+        if preset_id in PRESET_PATHS:
+            for rel in PRESET_PATHS[preset_id]:
+                if rel not in paths:
+                    paths.append(rel)
+                if rel not in preset_paths:
+                    preset_paths.append(rel)
 
     if not tenant_ids:
         return JSONResponse({"ok": False, "message": "tenant_ids 不能为空"}, status_code=400)
     if not paths:
-        return JSONResponse({"ok": False, "message": "请至少选择一个文件或目录"}, status_code=400)
+        return JSONResponse({"ok": False, "message": "请至少选择一个文件或目录（含快捷分发）"}, status_code=400)
 
     # 校验路径安全
     for p in paths:
         if not _is_path_safe(p):
             return JSONResponse({"ok": False, "message": f"非法路径: {p}"}, status_code=400)
 
+    # 校验预设文件存在（快捷分发选中的文件必须在模板中存在）
+    if preset_paths:
+        ok_val, err_msg = _validate_preset_files(preset_paths)
+        if not ok_val:
+            return JSONResponse({"ok": False, "message": err_msg}, status_code=400)
+
     # 校验租户存在
-    all_tenants = {t["user_id"]: t for t in db.get_all_tenants()}
+    all_tenants = {t["user_id"]: t for t in tenant_db.get_all_tenants()}
     for uid in tenant_ids:
         if uid not in all_tenants:
             return JSONResponse({"ok": False, "message": f"租户 '{uid}' 不存在"}, status_code=400)
@@ -759,10 +869,10 @@ async def api_distribute(request: Request):
             try:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 if src.is_file():
-                    shutil.copy2(src, dst)
+                    shutil.copy(src, dst)  # 不保留原时间戳，使用分发时时间
                     ok_count += 1
                 else:
-                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                    shutil.copytree(src, dst, dirs_exist_ok=True, copy_function=shutil.copy)  # 同上
                     ok_count += 1
             except Exception as e:
                 fail_count += 1
@@ -783,8 +893,8 @@ async def api_distribute(request: Request):
 # PART 7: Shared File Service
 # ===================================================================
 #
-# 供 CoPaw 工具、外部服务（如潮流计算）写入大文件，前端可读取用于展示。
-# 文件按日期存储：{SHARED_FILES_DIR}/YYYYMMDD/{path}，日期由服务自动添加。
+# 供 GridPaw 工具、外部服务（如潮流计算）写入大文件，前端可读取用于展示。
+# 文件按日期存储：{SHARED_FILES_DATA_DIR}/YYYYMMDD/{path}，日期由服务自动添加。
 # 支持 JSON 写入（文本）和 multipart 写入（任意文件含二进制）。
 # 以下代码块可整体定位为「共享文件服务」。
 # ===================================================================
@@ -807,12 +917,12 @@ def _build_shared_file_full_path(path: str) -> Path:
     # 规范化 path，移除首尾空格和多余斜杠
     clean_path = path.strip().strip("/").replace("\\", "/")
     rel = f"{date_dir}/{clean_path}" if clean_path else date_dir
-    return (SHARED_FILES_DIR / rel).resolve()
+    return (SHARED_FILES_DATA_DIR / rel).resolve()
 
 
 def _ensure_resolved_under_root(resolved: Path) -> bool:
-    """确保解析后路径在 SHARED_FILES_DIR 之下。"""
-    root = SHARED_FILES_DIR.resolve()
+    """确保解析后路径在 SHARED_FILES_DATA_DIR 之下。"""
+    root = SHARED_FILES_DATA_DIR.resolve()
     return str(resolved).startswith(str(root))
 
 
@@ -942,7 +1052,7 @@ async def shared_files_write(request: Request):
         )
 
     # 构建相对 path（用于 URL 路径）与完整 URL（端口自动从 NGINX_PORT 补充）
-    rel_path = str(full_path.relative_to(SHARED_FILES_DIR)).replace("\\", "/")
+    rel_path = str(full_path.relative_to(SHARED_FILES_DATA_DIR)).replace("\\", "/")
     encoded = quote(rel_path, safe="/")
     base = _get_file_service_base_url()
     full_url = f"{base}/share_files/{encoded}" if base else f"/share_files/{encoded}"
@@ -967,7 +1077,7 @@ async def shared_files_read(file_path: str):
     if ".." in file_path or file_path.startswith("/") or file_path.startswith("\\"):
         return JSONResponse({"error": "path 非法"}, status_code=400)
 
-    full_path = (SHARED_FILES_DIR / file_path).resolve()
+    full_path = (SHARED_FILES_DATA_DIR / file_path).resolve()
     if not _ensure_resolved_under_root(full_path):
         return JSONResponse({"error": "path 非法"}, status_code=400)
     if not full_path.is_file():

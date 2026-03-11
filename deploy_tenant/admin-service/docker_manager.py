@@ -1,4 +1,4 @@
-"""Docker API wrapper for managing CoPaw tenant containers.
+"""Docker API wrapper for managing GridPaw tenant containers.
 
 Uses the docker Python SDK to create, start, stop, remove containers and
 fetch logs. Expects /var/run/docker.sock to be mounted into the admin
@@ -50,9 +50,14 @@ def create_and_start_container(
 ) -> tuple[bool, str]:
     """Create and start a container, or start it if it already exists (stopped).
 
+    port: 容器内 CoPaw 监听端口（通常 8088），与 env 中的 COPAW_PORT 同源（main.py 用
+         TENANT_INTERNAL_PORT 构造 env）。**当前未用于宿主机端口映射**：生产环境通过 Docker
+         网络 + nginx 按容器名代理，无需映射到宿主机。保留此参数供将来「无 admin/nginx 时
+         直连调试点」实现时使用。注意：若启用 host 映射，多租户默认同为 8088 会互相冲突，
+         且易与宿主机既有服务抢端口。
     extra_volumes: list of {"host": "/host/path", "bind": "/container/path", "mode": "rw"}
     force_recreate: if True, remove existing container and create fresh (to apply new mounts)
-    secret_dir: host path for CoPaw SECRET_DIR ({data_dir}.secret), mounted to /app/working.secret
+    secret_dir: host path for GridPaw SECRET_DIR ({data_dir}.secret), mounted to /app/working.secret
     """
     client = _get_client()
 
@@ -227,12 +232,12 @@ def get_container_status(container_name: str) -> dict:
         return {"status": "error", "running_for": "", "container_id": ""}
 
 
-def get_all_instance_statuses() -> dict:
-    """Return status for all copaw-instance-* containers as {name: status_dict}."""
+def get_all_instance_statuses(prefix: str = "gridpaw-instance-") -> dict:
+    """Return status for all containers whose name starts with prefix, as {name: status_dict}."""
     client = _get_client()
     result = {}
     try:
-        containers = client.containers.list(all=True, filters={"name": "copaw-instance-"})
+        containers = client.containers.list(all=True, filters={"name": prefix})
         for c in containers:
             attrs = c.attrs or {}
             state = attrs.get("State", {})
