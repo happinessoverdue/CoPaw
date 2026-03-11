@@ -1,4 +1,4 @@
-# CoPaw custom image for multi-user deployment.
+# GridPaw tenant image for multi-user deployment.
 # Based on official agentscope/copaw image — skips all apt/system-package steps.
 # Build context: project root (REPO_ROOT). Paths like deploy/, console/, src/ are relative to context.
 # Content mirrors deploy/Dockerfile; keep in sync when that file changes.
