@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CoPaw Multi-Tenant Deployment Preparation Tool (Shell version).
+# GridPaw 多租户部署准备工具（Shell 版本）
 # 推荐使用：本地和服务器均可直接运行，无需 Python。
 # prepare.py 为 Python 版本，功能等价，可在无 Bash 环境下使用。
 
@@ -9,9 +9,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 IMAGES_DIR="${SCRIPT_DIR}/images"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-COPAW_IMAGE="${COPAW_IMAGE:-gridpaw-tenant:latest}"
 
-BUILD_TARGETS="nginx admin copaw"
+# 从 .env 文件读取配置（与 docker compose 保持一致，不依赖系统环境变量）
+_read_env() {
+    grep "^${1}=" "${SCRIPT_DIR}/.env" 2>/dev/null | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//' | tr -d ' '
+}
+TENANT_IMAGE="$(_read_env TENANT_IMAGE)"
+TENANT_IMAGE="${TENANT_IMAGE:-gridpaw-tenant:latest}"
+NGINX_PORT="$(_read_env NGINX_PORT)"
+NGINX_PORT="${NGINX_PORT:-8087}"
+
+BUILD_TARGETS="nginx admin gridpaw"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,11 +59,11 @@ cmd_build_admin() {
     run docker build -f "${SCRIPT_DIR}/admin-service/Dockerfile" -t gridpaw-admin:latest "${SCRIPT_DIR}"
 }
 
-cmd_build_copaw() {
-    echo "==> Building CoPaw image: ${COPAW_IMAGE}"
-    echo "    Dockerfile: ${SCRIPT_DIR}/copaw.Dockerfile"
+cmd_build_gridpaw() {
+    echo "==> Building GridPaw tenant image: ${TENANT_IMAGE}"
+    echo "    Dockerfile: ${SCRIPT_DIR}/gridpaw.Dockerfile"
     echo "    Context: ${REPO_ROOT}"
-    run docker build -f "${SCRIPT_DIR}/copaw.Dockerfile" -t "${COPAW_IMAGE}" "${REPO_ROOT}"
+    run docker build -f "${SCRIPT_DIR}/gridpaw.Dockerfile" -t "${TENANT_IMAGE}" "${REPO_ROOT}"
 }
 
 cmd_build() {
@@ -72,14 +80,14 @@ cmd_build() {
             esac
         done
     else
-        targets=(nginx admin copaw)
+        targets=(nginx admin gridpaw)
     fi
 
     for t in "${targets[@]}"; do
         case "$t" in
             nginx) cmd_build_nginx ;;
             admin) cmd_build_admin ;;
-            copaw) cmd_build_copaw ;;
+            gridpaw) cmd_build_gridpaw ;;
         esac
     done
 
@@ -89,7 +97,7 @@ cmd_build() {
         case "$t" in
             nginx) built="${built:+${built}, }gridpaw-nginx:latest" ;;
             admin) built="${built:+${built}, }gridpaw-admin:latest" ;;
-            copaw) built="${built:+${built}, }${COPAW_IMAGE}" ;;
+            gridpaw) built="${built:+${built}, }${TENANT_IMAGE}" ;;
         esac
     done
     [ -n "$built" ] && echo_green "    Built: ${built}"
@@ -107,8 +115,8 @@ cmd_export() {
     run docker save gridpaw-nginx:latest -o "${IMAGES_DIR}/gridpaw-nginx.tar"
     echo "  -> gridpaw-admin:latest"
     run docker save gridpaw-admin:latest -o "${IMAGES_DIR}/gridpaw-admin.tar"
-    echo "  -> ${COPAW_IMAGE}"
-    run docker save "${COPAW_IMAGE}" -o "${IMAGES_DIR}/gridpaw-tenant.tar"
+    echo "  -> ${TENANT_IMAGE}"
+    run docker save "${TENANT_IMAGE}" -o "${IMAGES_DIR}/gridpaw-tenant.tar"
 
     echo_green "==> Export complete. Files:"
     for f in $(ls -1 "${IMAGES_DIR}"/*.tar 2>/dev/null | sort); do
@@ -154,31 +162,78 @@ cmd_import() {
 # Docker Compose wrappers
 # ---------------------------------------------------------------------------
 
+_COMPOSE_SVC="nginx admin"
+
+_validate_services() {
+    local svc=("$@")
+    if [ ${#svc[@]} -gt 0 ]; then
+        for s in "${svc[@]}"; do
+            case " ${_COMPOSE_SVC} " in
+                *" ${s} "*) ;;
+                *)
+                    echo_red "ERROR: 未知服务: ${s}"
+                    echo_red "  可选: ${_COMPOSE_SVC}"
+                    exit 1
+                    ;;
+            esac
+        done
+    fi
+}
+
 cmd_up() {
-    echo "==> Starting services (nginx + admin) ..."
-    run docker compose -f "${COMPOSE_FILE}" up -d
+    local svc=("$@")
+    _validate_services "${svc[@]}"
+    if [ ${#svc[@]} -gt 0 ]; then
+        echo "==> Starting: ${svc[*]} ..."
+    else
+        echo "==> Starting services (nginx + admin) ..."
+    fi
+    run docker compose -f "${COMPOSE_FILE}" up -d "${svc[@]}"
     echo_green "==> Services started."
-    echo_green "    Admin panel: http://localhost:<NGINX_PORT>/admin/"
-    echo_green "    (Check .env for the actual NGINX_PORT value)"
+    echo_green "    Admin panel: http://localhost:${NGINX_PORT}/admin/"
 }
 
 cmd_down() {
-    echo "==> Stopping all services ..."
-    run docker compose -f "${COMPOSE_FILE}" down
-    echo_green "==> All services stopped."
+    local svc=("$@")
+    _validate_services "${svc[@]}"
+    if [ ${#svc[@]} -gt 0 ]; then
+        echo "==> Stopping and removing: ${svc[*]} ..."
+        run docker compose -f "${COMPOSE_FILE}" rm -f -s "${svc[@]}"
+    else
+        echo "==> Stopping all services ..."
+        run docker compose -f "${COMPOSE_FILE}" down
+    fi
+    echo_green "==> Done."
+}
+
+cmd_start() {
+    local svc=("$@")
+    _validate_services "${svc[@]}"
+    if [ ${#svc[@]} -gt 0 ]; then
+        echo "==> Starting: ${svc[*]} ..."
+    else
+        echo "==> Starting all services ..."
+    fi
+    run docker compose -f "${COMPOSE_FILE}" start "${svc[@]}"
+    echo_green "==> Done."
+}
+
+cmd_stop() {
+    local svc=("$@")
+    _validate_services "${svc[@]}"
+    if [ ${#svc[@]} -gt 0 ]; then
+        echo "==> Stopping: ${svc[*]} ..."
+    else
+        echo "==> Stopping all services ..."
+    fi
+    run docker compose -f "${COMPOSE_FILE}" stop "${svc[@]}"
+    echo_green "==> Done."
 }
 
 cmd_restart() {
     local svc=("$@")
+    _validate_services "${svc[@]}"
     if [ ${#svc[@]} -gt 0 ]; then
-        for s in "${svc[@]}"; do
-            case "$s" in nginx|admin) ;; *)
-                echo_red "ERROR: 未知服务: ${s}"
-                echo_red "  可选: nginx, admin"
-                exit 1
-                ;;
-            esac
-        done
         echo "==> Restarting: ${svc[*]} ..."
     else
         echo "==> Restarting all services ..."
@@ -200,27 +255,42 @@ cmd_logs() {
 }
 
 # ---------------------------------------------------------------------------
+# Prune dangling images
+# ---------------------------------------------------------------------------
+# 悬空镜像（<none>:<none>）通常由 rebuild gridpaw-nginx / gridpaw-admin / gridpaw-tenant 时产生。
+# Docker 无法按原 tag 过滤悬空镜像，此处删除所有悬空镜像以释放空间。
+
+cmd_prune() {
+    echo "==> Pruning dangling images (from previous gridpaw-nginx/admin/tenant builds) ..."
+    run docker image prune -f
+    echo_green "==> Prune complete."
+}
+
+# ---------------------------------------------------------------------------
 # Help
 # ---------------------------------------------------------------------------
 
 print_help() {
-    echo "CoPaw 多租户部署准备工具"
+    echo "GridPaw 多租户部署准备工具"
     echo "用法: ./prepare.sh <命令> [参数]"
     echo
     echo "命令:"
-    echo "  build         Build images [nginx|admin|copaw] (default: all)"
-    echo "  export        Export images to tar files (for offline transfer)"
-    echo "  import        Import images from tar files [images_dir]"
-    echo "  up            Start nginx + admin services"
-    echo "  down          Stop all services"
-    echo "  restart       Restart services [nginx|admin] (default: all)"
-    echo "  status        Show container status"
-    echo "  logs          Show logs (optionally for a specific service)"
+    echo "  build         构建镜像 [nginx|admin|gridpaw]（默认全部）"
+    echo "  export        导出镜像为 tar 文件（用于离线传输）"
+    echo "  import        从 tar 文件导入镜像 [images_dir]"
+    echo "  up            创建并启动 [nginx|admin]（默认全部）"
+    echo "  down          停止并移除 [nginx|admin]（默认全部）"
+    echo "  start         启动已有服务 [nginx|admin]（默认全部）"
+    echo "  stop          停止 [nginx|admin]（默认全部）"
+    echo "  restart       重启 [nginx|admin]（默认全部）"
+    echo "  status        显示容器状态"
+    echo "  logs          查看日志（可指定服务）"
+    echo "  prune         删除悬空镜像（来自 gridpaw-nginx/admin/tenant 重建）"
     echo
     echo "典型操作流程:"
     echo "  build 可指定目标，避免全量重建:"
     echo "    ./prepare.sh build admin   # 仅重建 admin（如改了 login.html）"
-    echo "    ./prepare.sh build copaw   # 仅重建 CoPaw 镜像"
+    echo "    ./prepare.sh build gridpaw   # 仅重建 GridPaw 租户镜像"
     echo
     echo "  【首次部署（有网络）】"
     echo "    1. 编辑 .env（端口、密钥、镜像名等）"
@@ -265,10 +335,16 @@ main() {
             cmd_import "$@"
             ;;
         up)
-            cmd_up
+            cmd_up "$@"
             ;;
         down)
-            cmd_down
+            cmd_down "$@"
+            ;;
+        start)
+            cmd_start "$@"
+            ;;
+        stop)
+            cmd_stop "$@"
             ;;
         restart)
             cmd_restart "$@"
@@ -279,8 +355,11 @@ main() {
         logs)
             cmd_logs "$@"
             ;;
+        prune)
+            cmd_prune
+            ;;
         *)
-            echo_red "Unknown command: ${cmd}"
+            echo_red "未知命令: ${cmd}"
             echo
             print_help
             exit 1

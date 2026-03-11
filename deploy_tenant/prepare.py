@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CoPaw Multi-Tenant Deployment Preparation Tool.
+"""GridPaw 多租户部署准备工具.
 
 Handles image building, export/import for offline deployment, and initial
 compose startup. Runtime tenant management is handled by the admin Web UI.
@@ -10,11 +10,14 @@ Usage:
     python prepare.py build       Build all Docker images
     python prepare.py export      Export images to tar files (for offline transfer)
     python prepare.py import [dir] Import images from tar files
-    python prepare.py up          Start nginx + admin services
-    python prepare.py down        Stop all services
-    python prepare.py restart [nginx|admin]  Restart services (default: all)
+    python prepare.py up [nginx|admin]     Create and start (default: all)
+    python prepare.py down [nginx|admin]    Stop and remove (default: all)
+    python prepare.py start [nginx|admin]  Start existing (default: all)
+    python prepare.py stop [nginx|admin]   Stop (default: all)
+    python prepare.py restart [nginx|admin]  Restart (default: all)
     python prepare.py status      Show container status
     python prepare.py logs [svc]  Show logs (optionally for a specific service)
+    python prepare.py prune       Remove dangling images (from rebuild)
 """
 
 import os
@@ -28,7 +31,22 @@ COMPOSE_FILE = SCRIPT_DIR / "docker-compose.yml"
 IMAGES_DIR = SCRIPT_DIR / "images"
 REPO_ROOT = SCRIPT_DIR.parent
 
-COPAW_IMAGE = os.environ.get("COPAW_IMAGE", "gridpaw-tenant:latest")
+
+def _read_env(key: str, default: str = "") -> str:
+    """从 .env 文件读取指定 key 的值（与 docker compose 保持一致，不依赖系统环境变量）。"""
+    env_file = SCRIPT_DIR / ".env"
+    try:
+        for line in env_file.read_text().splitlines():
+            line = line.split("#")[0].strip()
+            if line.startswith(f"{key}="):
+                return line[len(key) + 1:].strip()
+    except FileNotFoundError:
+        pass
+    return default
+
+
+TENANT_IMAGE = _read_env("TENANT_IMAGE") or "gridpaw-tenant:latest"
+NGINX_PORT = _read_env("NGINX_PORT") or "8087"
 
 
 def _color(text: str, code: str) -> str:
@@ -57,7 +75,7 @@ def run(args: List[str], check: bool = True) -> int:
 # build
 # ---------------------------------------------------------------------------
 
-BUILD_TARGETS = ("nginx", "admin", "copaw")
+BUILD_TARGETS = ("nginx", "admin", "gridpaw")
 
 
 def _build_nginx() -> None:
@@ -80,21 +98,21 @@ def _build_admin() -> None:
     ])
 
 
-def _build_copaw() -> None:
-    copaw_dockerfile = SCRIPT_DIR / "copaw.Dockerfile"
-    print(f"==> Building CoPaw image: {COPAW_IMAGE}")
-    print(f"    Dockerfile: {copaw_dockerfile}")
+def _build_gridpaw() -> None:
+    gridpaw_dockerfile = SCRIPT_DIR / "gridpaw.Dockerfile"
+    print(f"==> Building GridPaw tenant image: {TENANT_IMAGE}")
+    print(f"    Dockerfile: {gridpaw_dockerfile}")
     print(f"    Context: {REPO_ROOT}")
     run([
-        "docker", "build", "-f", str(copaw_dockerfile),
-        "-t", COPAW_IMAGE, str(REPO_ROOT),
+        "docker", "build", "-f", str(gridpaw_dockerfile),
+        "-t", TENANT_IMAGE, str(REPO_ROOT),
     ])
 
 
 def cmd_build(targets: Optional[List[str]] = None) -> None:
     """Build Docker images. If targets given, build only those; else build all.
 
-    Targets: nginx (build), admin, copaw
+    Targets: nginx (build), admin, gridpaw
     Example: python prepare.py build admin    # rebuild admin only
     """
     if targets:
@@ -111,8 +129,8 @@ def cmd_build(targets: Optional[List[str]] = None) -> None:
         _build_nginx()
     if "admin" in to_build:
         _build_admin()
-    if "copaw" in to_build:
-        _build_copaw()
+    if "gridpaw" in to_build:
+        _build_gridpaw()
 
     print(green("==> Build complete."))
     if to_build:
@@ -121,8 +139,8 @@ def cmd_build(targets: Optional[List[str]] = None) -> None:
             built.append("gridpaw-nginx:latest")
         if "admin" in to_build:
             built.append("gridpaw-admin:latest")
-        if "copaw" in to_build:
-            built.append(COPAW_IMAGE)
+        if "gridpaw" in to_build:
+            built.append(TENANT_IMAGE)
         print(green(f"    Built: {', '.join(built)}"))
 
 
@@ -137,7 +155,7 @@ def cmd_export() -> None:
     for name, filename in [
         ("gridpaw-nginx:latest", "gridpaw-nginx.tar"),
         ("gridpaw-admin:latest", "gridpaw-admin.tar"),
-        (COPAW_IMAGE, "gridpaw-tenant.tar"),
+        (TENANT_IMAGE, "gridpaw-tenant.tar"),
     ]:
         print(f"  -> {name}")
         run(["docker", "save", name, "-o", str(IMAGES_DIR / filename)])
@@ -183,33 +201,68 @@ def cmd_import(images_dir: Optional[Union[str, Path]] = None) -> None:
 # Docker Compose wrappers
 # ---------------------------------------------------------------------------
 
-def cmd_up() -> None:
-    print("==> Starting services (nginx + admin) ...")
-    run(["docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d"])
+COMPOSE_SERVICES = ("nginx", "admin")
+
+
+def _validate_services(services: Optional[List[str]]) -> List[str]:
+    if not services:
+        return []
+    invalid = [s for s in services if s not in COMPOSE_SERVICES]
+    if invalid:
+        print(red(f"ERROR: 未知服务: {', '.join(invalid)}"))
+        print(red(f"  可选: {', '.join(COMPOSE_SERVICES)}"))
+        sys.exit(1)
+    return services
+
+
+def cmd_up(services: Optional[List[str]] = None) -> None:
+    svc = _validate_services(services) if services else []
+    if svc:
+        print(f"==> Starting: {', '.join(svc)} ...")
+    else:
+        print("==> Starting services (nginx + admin) ...")
+    run(["docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d", *svc])
     print(green("==> Services started."))
-    print(green("    Admin panel: http://localhost:<NGINX_PORT>/admin/"))
-    print(green("    (Check .env for the actual NGINX_PORT value)"))
+    print(green(f"    Admin panel: http://localhost:{NGINX_PORT}/admin/"))
 
 
-def cmd_down() -> None:
-    print("==> Stopping all services ...")
-    run(["docker", "compose", "-f", str(COMPOSE_FILE), "down"])
-    print(green("==> All services stopped."))
+def cmd_down(services: Optional[List[str]] = None) -> None:
+    svc = _validate_services(services) if services else []
+    if svc:
+        print(f"==> Stopping and removing: {', '.join(svc)} ...")
+        run(["docker", "compose", "-f", str(COMPOSE_FILE), "rm", "-f", "-s", *svc])
+    else:
+        print("==> Stopping all services ...")
+        run(["docker", "compose", "-f", str(COMPOSE_FILE), "down"])
+    print(green("==> Done."))
+
+
+def cmd_start(services: Optional[List[str]] = None) -> None:
+    svc = _validate_services(services) if services else []
+    if svc:
+        print(f"==> Starting: {', '.join(svc)} ...")
+    else:
+        print("==> Starting all services ...")
+    run(["docker", "compose", "-f", str(COMPOSE_FILE), "start", *svc])
+    print(green("==> Done."))
+
+
+def cmd_stop(services: Optional[List[str]] = None) -> None:
+    svc = _validate_services(services) if services else []
+    if svc:
+        print(f"==> Stopping: {', '.join(svc)} ...")
+    else:
+        print("==> Stopping all services ...")
+    run(["docker", "compose", "-f", str(COMPOSE_FILE), "stop", *svc])
+    print(green("==> Done."))
 
 
 def cmd_restart(services: Optional[List[str]] = None) -> None:
     """Restart services. If services given, restart only those; else restart all."""
-    valid = {"nginx", "admin"}
-    if services:
-        invalid = [s for s in services if s not in valid]
-        if invalid:
-            print(red(f"ERROR: 未知服务: {', '.join(invalid)}"))
-            print(red(f"  可选: nginx, admin"))
-            sys.exit(1)
-        svc = services
+    svc = _validate_services(services) if services else []
+    if svc:
         print(f"==> Restarting: {', '.join(svc)} ...")
     else:
-        svc = []
         print("==> Restarting all services ...")
     run(["docker", "compose", "-f", str(COMPOSE_FILE), "restart", *svc])
     print(green("==> Restart complete."))
@@ -227,23 +280,39 @@ def cmd_logs(service: str = "") -> None:
 
 
 # ---------------------------------------------------------------------------
+# Prune dangling images
+# ---------------------------------------------------------------------------
+# 悬空镜像（<none>:<none>）通常由 rebuild gridpaw-nginx/admin/tenant 时产生。
+# Docker 无法按原 tag 过滤悬空镜像，此处删除所有悬空镜像以释放空间。
+
+
+def cmd_prune() -> None:
+    print("==> Pruning dangling images (from previous gridpaw-nginx/admin/tenant builds) ...")
+    run(["docker", "image", "prune", "-f"])
+    print(green("==> Prune complete."))
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 COMMANDS = {
-    "build":   (cmd_build,   "Build images [nginx|admin|copaw] (default: all)"),
-    "export":  (cmd_export,  "Export images to tar files (for offline transfer)"),
-    "import":  (cmd_import,  "Import images from tar files [images_dir]"),
-    "up":      (cmd_up,      "Start nginx + admin services"),
-    "down":    (cmd_down,    "Stop all services"),
-    "restart": (cmd_restart, "Restart services [nginx|admin] (default: all)"),
-    "status":  (cmd_status,  "Show container status"),
-    "logs":    (cmd_logs,    "Show logs (optionally for a specific service)"),
+    "build":   (cmd_build,   "构建镜像 [nginx|admin|gridpaw]（默认全部）"),
+    "export":  (cmd_export,  "导出镜像为 tar 文件（用于离线传输）"),
+    "import":  (cmd_import,  "从 tar 文件导入镜像 [images_dir]"),
+    "up":      (cmd_up,      "创建并启动 [nginx|admin]（默认全部）"),
+    "down":    (cmd_down,    "停止并移除 [nginx|admin]（默认全部）"),
+    "start":   (cmd_start,   "启动已有服务 [nginx|admin]（默认全部）"),
+    "stop":    (cmd_stop,    "停止 [nginx|admin]（默认全部）"),
+    "restart": (cmd_restart, "重启 [nginx|admin]（默认全部）"),
+    "status":  (cmd_status,  "显示容器状态"),
+    "logs":    (cmd_logs,    "查看日志（可指定服务）"),
+    "prune":   (cmd_prune,   "删除悬空镜像（来自 gridpaw-nginx/admin/tenant 重建）"),
 }
 
 
 def print_help() -> None:
-    print("CoPaw 多租户部署准备工具")
+    print("GridPaw 多租户部署准备工具")
     print("用法: python prepare.py <命令> [参数]")
     print()
     print("命令:")
@@ -253,7 +322,7 @@ def print_help() -> None:
     print("典型操作流程:")
     print("  build 可指定目标，避免全量重建:")
     print("    python prepare.py build admin   # 仅重建 admin（如改了 login.html）")
-    print("    python prepare.py build copaw   # 仅重建 CoPaw 镜像")
+    print("    python prepare.py build gridpaw   # 仅重建 GridPaw 租户镜像")
     print()
     print("  【首次部署（有网络）】")
     print("    1. 编辑 .env（端口、密钥、镜像名等）")
@@ -281,7 +350,7 @@ def main() -> None:
 
     cmd_name = sys.argv[1]
     if cmd_name not in COMMANDS:
-        print(red(f"Unknown command: {cmd_name}"))
+        print(red(f"未知命令: {cmd_name}"))
         print()
         print_help()
         sys.exit(1)
@@ -292,7 +361,7 @@ def main() -> None:
         cmd_func(sys.argv[2])
     elif cmd_name == "import" and len(sys.argv) > 2:
         cmd_func(sys.argv[2])
-    elif cmd_name in ("build", "restart"):
+    elif cmd_name in ("build", "restart", "up", "down", "start", "stop"):
         cmd_func(sys.argv[2:] if len(sys.argv) > 2 else None)
     else:
         cmd_func()
