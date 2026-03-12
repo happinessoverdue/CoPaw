@@ -7,7 +7,7 @@ compose startup. Runtime tenant management is handled by the admin Web UI.
 推荐优先使用 prepare.sh（Bash 版本，无需 Python）。本脚本适用于无 Bash 环境。
 
 Usage:
-    python prepare.py build       Build all Docker images
+    python prepare.py build [targets] [-p|--platform amd64|arm64]  Build images; -p for cross-platform (output to images/<arch>/)
     python prepare.py export      Export images to tar files (for offline transfer)
     python prepare.py import [dir] Import images from tar files
     python prepare.py up [nginx|admin]     Create and start (default: all)
@@ -76,6 +76,59 @@ def run(args: List[str], check: bool = True) -> int:
 # ---------------------------------------------------------------------------
 
 BUILD_TARGETS = ("nginx", "admin", "gridpaw")
+EXPORT_TARGETS = ("nginx", "admin", "gridpaw")
+BUILDX_BUILDER = "gridpaw-multiarch"
+
+
+def _normalize_platform(raw: str) -> str:
+    """解析平台简写，返回 linux/amd64 或 linux/arm64."""
+    m = {
+        "linux/amd64": "linux/amd64", "amd64": "linux/amd64", "amd": "linux/amd64",
+        "linux/arm64": "linux/arm64", "arm64": "linux/arm64", "arm": "linux/arm64",
+    }
+    if raw.lower() in m:
+        return m[raw.lower()]
+    print(red(f"ERROR: 不支持的平台: {raw}"))
+    print(red("  可选: linux/amd64, amd64, amd | linux/arm64, arm64, arm"))
+    sys.exit(1)
+    return ""  # unreachable
+
+
+def _platform_short_name(platform: str) -> str:
+    if platform == "linux/amd64":
+        return "amd64"
+    if platform == "linux/arm64":
+        return "arm64"
+    return platform.replace("/", "_")
+
+
+def _detect_arch() -> str:
+    """检测当前平台架构，返回 amd64 或 arm64（用于 export 目录）."""
+    try:
+        import platform as pl
+        m = (pl.machine() or "").lower()
+    except Exception:
+        result = subprocess.run(["uname", "-m"], capture_output=True, text=True, check=False)
+        m = (result.stdout or "").strip().lower()
+    if m in ("x86_64", "amd64"):
+        return "amd64"
+    if m in ("aarch64", "arm64", "armv8", "armv8l", "armv8b"):
+        return "arm64"
+    return "amd64"  # 未知时默认
+
+
+def _ensure_buildx_builder() -> None:
+    """确保存在支持 type=docker,dest= 的 buildx builder（需 docker-container 驱动）."""
+    result = subprocess.run(
+        ["docker", "buildx", "inspect", BUILDX_BUILDER],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"==> 创建 buildx builder '{BUILDX_BUILDER}'（首次跨平台构建需此步骤）...")
+        run(["docker", "buildx", "create", "--name", BUILDX_BUILDER, "--driver", "docker-container", "--use"])
+    else:
+        subprocess.run(["docker", "buildx", "use", BUILDX_BUILDER], capture_output=True)
 
 
 def _build_nginx() -> None:
@@ -109,68 +162,174 @@ def _build_gridpaw() -> None:
     ])
 
 
-def cmd_build(targets: Optional[List[str]] = None) -> None:
-    """Build Docker images. If targets given, build only those; else build all.
+def _build_nginx_cross(platform: str, out_dir: Path) -> None:
+    tar_file = out_dir / "gridpaw-nginx.tar"
+    print(f"==> Building nginx ({platform}) -> {tar_file}")
+    run([
+        "docker", "buildx", "build",
+        "--platform", platform,
+        "-f", str(SCRIPT_DIR / "nginx" / "Dockerfile"),
+        "-t", "gridpaw-nginx:latest",
+        f"--output=type=docker,dest={tar_file}",
+        str(SCRIPT_DIR / "nginx"),
+    ])
 
-    Targets: nginx (build), admin, gridpaw
-    Example: python prepare.py build admin    # rebuild admin only
-    """
-    if targets:
-        invalid = [t for t in targets if t not in BUILD_TARGETS]
-        if invalid:
-            print(red(f"ERROR: 未知构建目标: {', '.join(invalid)}"))
+
+def _build_admin_cross(platform: str, out_dir: Path) -> None:
+    tar_file = out_dir / "gridpaw-admin.tar"
+    print(f"==> Building admin ({platform}) -> {tar_file}")
+    run([
+        "docker", "buildx", "build",
+        "--platform", platform,
+        "-f", str(SCRIPT_DIR / "admin-service" / "Dockerfile"),
+        "-t", "gridpaw-admin:latest",
+        f"--output=type=docker,dest={tar_file}",
+        str(SCRIPT_DIR),
+    ])
+
+
+def _build_gridpaw_cross(platform: str, out_dir: Path) -> None:
+    tar_file = out_dir / "gridpaw-tenant.tar"
+    print(f"==> Building GridPaw tenant ({platform}) -> {tar_file}")
+    print(f"    Image tag in tar: {TENANT_IMAGE}")
+    run([
+        "docker", "buildx", "build",
+        "--platform", platform,
+        "-f", str(SCRIPT_DIR / "gridpaw.Dockerfile"),
+        "-t", TENANT_IMAGE,
+        f"--output=type=docker,dest={tar_file}",
+        str(REPO_ROOT),
+    ])
+
+
+def _parse_build_args(args: Optional[List[str]]) -> tuple[List[str], Optional[str]]:
+    """从 build 参数中解析 targets 和 platform。返回 (targets, platform)."""
+    if not args:
+        return (list(BUILD_TARGETS), None)
+    targets: List[str] = []
+    platform: Optional[str] = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-p", "--platform"):
+            if i + 1 >= len(args):
+                print(red("ERROR: --platform 需要指定值，如 amd64 或 arm64"))
+                sys.exit(1)
+            platform = _normalize_platform(args[i + 1])
+            i += 2
+            continue
+        if a.startswith("-"):
+            print(red(f"ERROR: 未知选项: {a}"))
+            sys.exit(1)
+        if a in BUILD_TARGETS:
+            targets.append(a)
+        else:
+            print(red(f"ERROR: 未知构建目标: {a}"))
             print(red(f"  可选: {', '.join(BUILD_TARGETS)}"))
             sys.exit(1)
-        to_build = targets
-    else:
-        to_build = list(BUILD_TARGETS)
+        i += 1
+    if not targets:
+        targets = list(BUILD_TARGETS)
+    return (targets, platform)
 
-    if "nginx" in to_build:
-        _build_nginx()
-    if "admin" in to_build:
-        _build_admin()
-    if "gridpaw" in to_build:
-        _build_gridpaw()
 
-    print(green("==> Build complete."))
-    if to_build:
-        built = []
+def cmd_build(args: Optional[List[str]] = None) -> None:
+    """Build Docker images. If targets given, build only those; else build all.
+
+    支持 -p/--platform <平台> 跨平台构建，输出到 images/<arch>/（不加载到本地）。
+    平台: linux/amd64, amd64, amd | linux/arm64, arm64, arm
+
+    Example:
+        python prepare.py build admin
+        python prepare.py build -p amd64
+    """
+    to_build, platform = _parse_build_args(args)
+
+    if platform:
+        # 跨平台构建：输出到 images/<arch>/
+        short_name = _platform_short_name(platform)
+        out_dir = IMAGES_DIR / short_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        print(f"==> 跨平台构建: {platform} -> {out_dir}/")
+        _ensure_buildx_builder()
         if "nginx" in to_build:
-            built.append("gridpaw-nginx:latest")
+            _build_nginx_cross(platform, out_dir)
         if "admin" in to_build:
-            built.append("gridpaw-admin:latest")
+            _build_admin_cross(platform, out_dir)
         if "gridpaw" in to_build:
-            built.append(TENANT_IMAGE)
-        print(green(f"    Built: {', '.join(built)}"))
+            _build_gridpaw_cross(platform, out_dir)
+        print(green(f"==> Build complete. 镜像已保存到: {out_dir}/"))
+        for f in sorted(out_dir.glob("*.tar")):
+            size_mb = f.stat().st_size / (1024 * 1024)
+            print(f"    {f.name}  ({size_mb:.1f} MB)")
+        print()
+        print(f"  传输到目标服务器后执行: python prepare.py import {out_dir}")
+    else:
+        # 本机构建：加载到 Docker
+        if "nginx" in to_build:
+            _build_nginx()
+        if "admin" in to_build:
+            _build_admin()
+        if "gridpaw" in to_build:
+            _build_gridpaw()
+        print(green("==> Build complete."))
+        if to_build:
+            built = []
+            if "nginx" in to_build:
+                built.append("gridpaw-nginx:latest")
+            if "admin" in to_build:
+                built.append("gridpaw-admin:latest")
+            if "gridpaw" in to_build:
+                built.append(TENANT_IMAGE)
+            print(green(f"    Built: {', '.join(built)}"))
 
 
 # ---------------------------------------------------------------------------
 # export / import
 # ---------------------------------------------------------------------------
 
-def cmd_export() -> None:
-    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"==> Exporting images to {IMAGES_DIR}/ ...")
+def cmd_export(targets: Optional[List[str]] = None) -> None:
+    """Export Docker images to tar files. If targets given, export only those; else export all."""
+    if targets:
+        invalid = [t for t in targets if t not in EXPORT_TARGETS]
+        if invalid:
+            print(red(f"ERROR: 未知导出目标: {', '.join(invalid)}"))
+            print(red(f"  可选: {', '.join(EXPORT_TARGETS)}"))
+            sys.exit(1)
+        to_export = targets
+    else:
+        to_export = list(EXPORT_TARGETS)
 
-    for name, filename in [
-        ("gridpaw-nginx:latest", "gridpaw-nginx.tar"),
-        ("gridpaw-admin:latest", "gridpaw-admin.tar"),
-        (TENANT_IMAGE, "gridpaw-tenant.tar"),
-    ]:
-        print(f"  -> {name}")
-        run(["docker", "save", name, "-o", str(IMAGES_DIR / filename)])
+    arch = _detect_arch()
+    out_dir = IMAGES_DIR / arch
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"==> Exporting images to {out_dir}/ (platform: {arch}) ...")
+
+    export_map = [
+        ("nginx", "gridpaw-nginx:latest", "gridpaw-nginx.tar"),
+        ("admin", "gridpaw-admin:latest", "gridpaw-admin.tar"),
+        ("gridpaw", TENANT_IMAGE, "gridpaw-tenant.tar"),
+    ]
+    exported = []
+    for key, name, filename in export_map:
+        if key in to_export:
+            print(f"  -> {name}")
+            run(["docker", "save", name, "-o", str(out_dir / filename)])
+            exported.append(out_dir / filename)
 
     print(green("==> Export complete. Files:"))
-    for f in sorted(IMAGES_DIR.glob("*.tar")):
+    for f in exported:
         size_mb = f.stat().st_size / (1024 * 1024)
         print(f"    {f.name}  ({size_mb:.1f} MB)")
     print()
-    print("Transfer these files to the intranet server, then run:")
-    print("  python prepare.py import")
+    print("Transfer to target server, then run:")
+    print(f"  python prepare.py import {out_dir}")
 
 
 def cmd_import(images_dir: Optional[Union[str, Path]] = None) -> None:
-    dir_path = Path(images_dir).resolve() if images_dir else IMAGES_DIR
+    arch = _detect_arch()
+    default_dir = IMAGES_DIR / arch
+    dir_path = Path(images_dir).resolve() if images_dir else default_dir
 
     if not dir_path.exists():
         print(red(f"ERROR: 目录不存在: {dir_path}"))
@@ -297,8 +456,8 @@ def cmd_prune() -> None:
 # ---------------------------------------------------------------------------
 
 COMMANDS = {
-    "build":   (cmd_build,   "构建镜像 [nginx|admin|gridpaw]（默认全部）"),
-    "export":  (cmd_export,  "导出镜像为 tar 文件（用于离线传输）"),
+    "build":   (cmd_build,   "构建镜像 [nginx|admin|gridpaw]；可加 -p/--platform amd64|arm64 跨平台构建"),
+    "export":  (cmd_export,  "导出镜像到 images/<架构>/ [nginx|admin|gridpaw]（可指定目标，默认全部）"),
     "import":  (cmd_import,  "从 tar 文件导入镜像 [images_dir]"),
     "up":      (cmd_up,      "创建并启动 [nginx|admin]（默认全部）"),
     "down":    (cmd_down,    "停止并移除 [nginx|admin]（默认全部）"),
@@ -322,6 +481,7 @@ def print_help() -> None:
     print("典型操作流程:")
     print("  build 可指定目标，避免全量重建:")
     print("    python prepare.py build admin   # 仅重建 admin（如改了 login.html）")
+    print("    python prepare.py build -p amd64  # 跨平台构建 linux/amd64，输出到 images/amd64/（不加载到本地）")
     print("    python prepare.py build gridpaw   # 仅重建 GridPaw 租户镜像")
     print()
     print("  【首次部署（有网络）】")
@@ -361,7 +521,7 @@ def main() -> None:
         cmd_func(sys.argv[2])
     elif cmd_name == "import" and len(sys.argv) > 2:
         cmd_func(sys.argv[2])
-    elif cmd_name in ("build", "restart", "up", "down", "start", "stop"):
+    elif cmd_name in ("build", "export", "restart", "up", "down", "start", "stop"):
         cmd_func(sys.argv[2:] if len(sys.argv) > 2 else None)
     else:
         cmd_func()
