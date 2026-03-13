@@ -77,17 +77,20 @@
 
   /* ---- Table ---- */
   .table-wrap {
-    background: #1e293b; border: 1px solid #334155; border-radius: 8px; overflow: hidden;
+    background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+    overflow: visible; /* 允许表头下拉框向下展开，不被裁切 */
   }
   table { width: 100%; border-collapse: collapse; }
   thead th {
     padding: 0.625rem 0.75rem; font-size: 0.75rem; font-weight: 600;
-    text-align: left; color: #94a3b8; background: #1e293b;
+    text-align: center; color: #94a3b8; background: #1e293b;
     border-bottom: 1px solid #334155; text-transform: uppercase; letter-spacing: 0.025em;
   }
   tbody td {
     padding: 0.625rem 0.75rem; font-size: 0.8125rem; border-bottom: 1px solid #1e293b;
+    text-align: center;
   }
+  tbody td.actions { text-align: left; }
   tbody tr { background: #0f172a; transition: background 0.1s; }
   tbody tr:hover { background: #1e293b; }
   .status-badge {
@@ -98,7 +101,7 @@
   .status-exited { background: rgba(239,68,68,0.15); color: #f87171; }
   .status-not_found { background: rgba(148,163,184,0.15); color: #94a3b8; }
   .status-created, .status-paused, .status-restarting { background: rgba(250,204,21,0.15); color: #facc15; }
-  .actions { display: flex; gap: 0; flex-wrap: wrap; align-items: center; }
+  .actions { display: flex; gap: 0; flex-wrap: wrap; align-items: center; justify-content: flex-start; }
   .actions .btn-group { display: inline-flex; gap: 0.25rem; align-items: center; }
   .actions .actions-sep {
     width: 2px; margin: 0 0.625rem; background: #64748b;
@@ -106,6 +109,38 @@
   }
   .empty-row td { text-align: center; color: #64748b; padding: 2rem; }
   .running-for { font-size: 0.75rem; color: #64748b; }
+
+  /* 容器状态列：点击表头展开下拉 */
+  .status-col-header {
+    position: relative;
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    cursor: pointer; user-select: none;
+    padding: 0.25rem 0.5rem; border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .status-col-header:hover { background: rgba(100,116,139,0.2); color: #e2e8f0; }
+  .status-col-header .status-drop-arrow { font-size: 0.625rem; color: #64748b; }
+  .status-col-header:hover .status-drop-arrow { color: #94a3b8; }
+  .status-col-dropdown {
+    display: none; position: absolute; top: 100%; left: 0; margin-top: 0.25rem;
+    min-width: 140px; padding: 0.5rem 0;
+    background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.4); z-index: 100;
+  }
+  .status-col-dropdown.open { display: block; }
+  .status-col-dropdown .drop-section { padding: 0.25rem 0; border-bottom: 1px solid #334155; }
+  .status-col-dropdown .drop-section:last-child { border-bottom: none; }
+  .status-col-dropdown .drop-section-title { padding: 0.25rem 0.75rem; font-size: 0.6875rem; color: #64748b; text-transform: uppercase; }
+  .status-col-dropdown .drop-item {
+    display: block; width: 100%; padding: 0.375rem 0.75rem; font-size: 0.8125rem;
+    text-align: left; background: none; border: none; color: #e2e8f0;
+    cursor: pointer; transition: background 0.1s;
+  }
+  .status-col-dropdown .drop-item:hover { background: rgba(100,116,139,0.3); }
+  .status-col-dropdown .drop-item.active { color: #3b82f6; background: rgba(59,130,246,0.1); }
+
+  .edit-col { width: 1%; white-space: nowrap; }
+  .status-col-th { position: relative; }
 
   /* ---- Modal ---- */
   .modal-overlay {
@@ -265,15 +300,20 @@
   }
   .distribute-presets-wrap:last-of-type { margin-bottom: 0; }
   .distribute-preset-item {
-    display: inline-flex; align-items: center; gap: 0.5rem;
+    display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 0.5rem;
     cursor: pointer; font-size: 0.875rem; color: #e2e8f0;
     min-height: 1.25rem;
   }
   .distribute-preset-item input {
     accent-color: #3b82f6; cursor: pointer; flex-shrink: 0;
-    width: 1rem; height: 1rem; margin: 0; vertical-align: middle;
+    width: 1rem; height: 1rem; margin: 0;
+    align-self: center;
   }
-  .distribute-preset-hint { font-size: 0.75rem; color: #94a3b8; margin-left: 0.25rem; }
+  .distribute-preset-hint {
+    font-size: 0.75rem; color: #94a3b8;
+    flex-shrink: 0;
+    margin-left: 0.25rem;
+  }
 </style>
 </head>
 <body>
@@ -313,7 +353,29 @@
           <th class="checkbox-cell"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
           <th>用户 ID</th>
           <th>姓名</th>
-          <th>容器状态</th>
+          <th class="edit-col">编辑</th>
+          <th class="status-col-th">
+            <div class="status-col-header" id="statusHeaderTrigger" onclick="toggleStatusDropdown(event)" title="点击筛选或排序">
+              <span>容器状态</span>
+              <span class="status-drop-arrow">▼</span>
+            </div>
+            <div class="status-col-dropdown" id="statusDropdown" onclick="event.stopPropagation()">
+              <div class="drop-section">
+                <div class="drop-section-title">筛选</div>
+                <button type="button" class="drop-item" data-filter="" onclick="onStatusFilterChange(''); closeStatusDropdownOnce();">全部</button>
+                <button type="button" class="drop-item" data-filter="running" onclick="onStatusFilterChange('running'); closeStatusDropdownOnce();">运行中</button>
+                <button type="button" class="drop-item" data-filter="exited" onclick="onStatusFilterChange('exited'); closeStatusDropdownOnce();">已停止</button>
+                <button type="button" class="drop-item" data-filter="not_found" onclick="onStatusFilterChange('not_found'); closeStatusDropdownOnce();">未创建</button>
+                <button type="button" class="drop-item" data-filter="other" onclick="onStatusFilterChange('other'); closeStatusDropdownOnce();">其他</button>
+              </div>
+              <div class="drop-section">
+                <div class="drop-section-title">排序</div>
+                <button type="button" class="drop-item" data-sort="none" onclick="onStatusSortChange('none'); closeStatusDropdownOnce();">不排序</button>
+                <button type="button" class="drop-item" data-sort="asc" onclick="onStatusSortChange('asc'); closeStatusDropdownOnce();">升序 ↑</button>
+                <button type="button" class="drop-item" data-sort="desc" onclick="onStatusSortChange('desc'); closeStatusDropdownOnce();">降序 ↓</button>
+              </div>
+            </div>
+          </th>
           <th>运行时长</th>
           <th>操作</th>
         </tr>
@@ -438,15 +500,22 @@
           <label class="distribute-preset-item">
             <input type="checkbox" id="distributePresetLlmConfig" value="llm_config">
             <span>大模型配置</span>
+            <span class="distribute-preset-hint">providers.json</span>
           </label>
-          <span class="distribute-preset-hint">providers.json</span>
         </div>
         <div class="distribute-presets-wrap">
           <label class="distribute-preset-item">
             <input type="checkbox" id="distributePresetEnvVars" value="env_vars">
             <span>环境变量</span>
+            <span class="distribute-preset-hint">envs.json</span>
           </label>
-          <span class="distribute-preset-hint">envs.json</span>
+        </div>
+        <div class="distribute-presets-wrap">
+          <label class="distribute-preset-item">
+            <input type="checkbox" id="distributePresetAgentPrompts" value="agent_prompts">
+            <span>智能体提示词</span>
+            <span class="distribute-preset-hint">AGENTS.md + PROFILE.md + SOUL.md + MEMORY.md + HEARTBEAT.md</span>
+          </label>
         </div>
       </div>
     </div>
@@ -470,7 +539,7 @@
     <p id="distributeConfirmMessage" class="distribute-confirm-msg"></p>
     <label class="distribute-confirm-option-wrap">
       <input type="checkbox" id="distributeConfirmRestart" checked>
-      <span class="distribute-confirm-label">分发后立即重启运行中的容器</span>
+      <span class="distribute-confirm-label">分发后立即重建运行中的容器</span>
     </label>
     <div class="distribute-confirm-hint">勾选后，分发成功将对运行中的租户执行重建以加载新配置</div>
     <div class="modal-actions">
@@ -499,6 +568,8 @@ const API = '/admin/api';
 let autoRefreshTimer = null;
 let tenantsData = [];
 let instancePrefix = 'gridpaw-instance-';  // 由 /tenants 的 config 覆盖
+let statusFilter = '';   // '' | 'running' | 'exited' | 'not_found'
+let statusSort = 'none'; // 'none' | 'asc' | 'desc'
 
 // ---- API helpers ----
 
@@ -566,39 +637,110 @@ function statusBadge(status) {
   return `<span class="status-badge ${cls}">${label}</span>`;
 }
 
+function getFilteredAndSortedTenants() {
+  let list = tenantsData.slice();
+  if (statusFilter) {
+    list = list.filter(t => {
+      const st = (t.container || {}).status || 'not_found';
+      if (statusFilter === 'other') {
+        return !['running', 'exited', 'not_found'].includes(st);
+      }
+      return st === statusFilter;
+    });
+  }
+  if (statusSort !== 'none') {
+    const order = { running: 1, restarting: 2, created: 3, paused: 4, exited: 5, not_found: 6 };
+    const rank = (st) => order[st] ?? 7;
+    list.sort((a, b) => {
+      const sa = (a.container || {}).status || 'not_found';
+      const sb = (b.container || {}).status || 'not_found';
+      const diff = rank(sa) - rank(sb);
+      return statusSort === 'asc' ? diff : -diff;
+    });
+  }
+  return list;
+}
+
+function toggleStatusDropdown(ev) {
+  ev.stopPropagation();
+  const dd = document.getElementById('statusDropdown');
+  const isOpen = dd.classList.toggle('open');
+  if (isOpen) {
+    updateStatusDropdownActive();
+    document.addEventListener('click', closeStatusDropdownOnce);
+  }
+}
+
+function closeStatusDropdownOnce() {
+  document.getElementById('statusDropdown').classList.remove('open');
+  document.removeEventListener('click', closeStatusDropdownOnce);
+}
+
+function updateStatusDropdownActive() {
+  document.querySelectorAll('#statusDropdown .drop-item').forEach(el => {
+    const f = el.getAttribute('data-filter');
+    const s = el.getAttribute('data-sort');
+    const isFilterMatch = f !== null && String(f) === String(statusFilter);
+    const isSortMatch = s !== null && String(s) === String(statusSort);
+    el.classList.toggle('active', isFilterMatch || isSortMatch);
+  });
+}
+
+function onStatusFilterChange(val) {
+  statusFilter = val;
+  renderTable();
+}
+
+function onStatusSortChange(val) {
+  statusSort = val;
+  renderTable();
+}
+
 function renderTable() {
   const tbody = document.getElementById('tenantBody');
   const savedIds = getSelectedIds();
-  if (tenantsData.length === 0) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">暂无租户，点击「+ 新增租户」开始</td></tr>';
+  const list = getFilteredAndSortedTenants();
+  if (list.length === 0) {
+    const msg = tenantsData.length === 0
+      ? '暂无租户，点击「+ 新增租户」开始'
+      : statusFilter ? '无匹配租户，可切换筛选条件' : '';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + msg + '</td></tr>';
     updateBatchButtonsState();
     return;
   }
-  tbody.innerHTML = tenantsData.map(t => {
+  tbody.innerHTML = list.map(t => {
     const cs = t.container || {};
     const st = cs.status || 'not_found';
     const isRunning = st === 'running';
     const hasContainer = st !== 'not_found';  // 容器已存在(含已停止)
+    const grp1 = isRunning
+      ? `<button class="btn btn-sm btn-danger" onclick="containerAction(this,'${t.user_id}','stop')">停止</button>
+         <button class="btn btn-sm btn-purple" onclick="containerAction(this,'${t.user_id}','restart')">重启</button>`
+      : `<button class="btn btn-sm btn-success" onclick="containerAction(this,'${t.user_id}','start')">启动</button>`;
+    const grp2 = hasContainer ? `<button class="btn btn-sm btn-purple" onclick="containerAction(this,'${t.user_id}','recreate')">重建</button>` : '';
+    const grp3 = !isRunning
+      ? `${hasContainer ? `<button class="btn btn-sm btn-danger" onclick="confirmRemoveContainer('${t.user_id}')">删除容器</button>` : ''}
+         <button class="btn btn-sm btn-danger" onclick="confirmDelete('${t.user_id}')">删除租户</button>`
+      : '';
+    const grp4 = isRunning
+      ? `<button class="btn btn-sm btn-blue" onclick="showLogs('${t.user_id}')">日志</button>` : '';
+    const grp5 = isRunning
+      ? `<button class="btn btn-sm btn-success" onclick="openGridPaw('${t.user_id}')" title="在新标签页打开该租户的 GridPaw 页面">进入页面 →</button>` : '';
+    const parts = [
+      `<span class="btn-group">${grp1}</span>`,
+      grp2 ? `<span class="btn-group">${grp2}</span>` : '',
+      grp3 ? `<span class="btn-group">${grp3}</span>` : '',
+      grp4 ? `<span class="btn-group">${grp4}</span>` : '',
+      grp5 ? `<span class="btn-group">${grp5}</span>` : '',
+    ].filter(Boolean);
     return `<tr>
       <td class="checkbox-cell"><input type="checkbox" class="tenant-cb" value="${t.user_id}"></td>
       <td><strong>${esc(t.user_id)}</strong></td>
       <td>${esc(t.user_name)}</td>
+      <td class="edit-col"><button class="btn btn-sm btn-blue" onclick="showEditModal('${t.user_id}')">编辑</button></td>
       <td>${statusBadge(st)}</td>
       <td><span class="running-for">${cs.running_for || '-'}</span></td>
-      <td class="actions">
-        <span class="btn-group">
-          <button class="btn btn-sm btn-blue" onclick="showEditModal('${t.user_id}')">编辑</button>
-        </span>
-        <span class="actions-sep"></span>
-        <span class="btn-group">${isRunning
-          ? `<button class="btn btn-sm btn-danger" onclick="containerAction(this,'${t.user_id}','stop')">停止</button>
-             <button class="btn btn-sm btn-purple" onclick="containerAction(this,'${t.user_id}','restart')">重建</button>`
-          : `<button class="btn btn-sm btn-success" onclick="containerAction(this,'${t.user_id}','start')">启动</button>
-             ${hasContainer ? `<button class="btn btn-sm btn-danger" onclick="confirmRemoveContainer('${t.user_id}')">删除容器</button>` : ''}`}
-        </span>
-        ${isRunning ? `<span class="actions-sep"></span><span class="btn-group"><button class="btn btn-sm btn-blue" onclick="showLogs('${t.user_id}')">日志</button></span><span class="actions-sep"></span><span class="btn-group"><button class="btn btn-sm btn-success" onclick="openGridPaw('${t.user_id}')" title="在新标签页打开该租户的 GridPaw 页面">进入页面 →</button></span>` : ''}
-        ${!isRunning ? `<span class="actions-sep"></span><span class="btn-group"><button class="btn btn-sm btn-danger" onclick="confirmDelete('${t.user_id}')">删除租户</button></span>` : ''}
-      </td>
+      <td class="actions">${parts.map(p => p).join('<span class="actions-sep"></span>')}</td>
     </tr>`;
   }).join('');
   const savedSet = new Set(savedIds);
@@ -928,15 +1070,27 @@ async function doDelete(userId) {
 // ---- Container actions ----
 
 async function containerAction(btn, userId, action) {
-  const labels = { start: '启动中...', stop: '停止中...', restart: '重建中...' };
+  const labels = { start: '启动中...', stop: '停止中...', restart: '重启中...', recreate: '重建中...' };
   setButtonLoading(btn, true, labels[action]);
   try {
-    const data = await apiFetch(`/containers/${userId}/${action}`, { method: 'POST' });
+    let data;
+    if (action === 'recreate') {
+      data = await apiFetch('/containers/batch', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'recreate', user_ids: [userId] }),
+      });
+      if (data && data.ok && data.results && data.results[0]) {
+        const r = data.results[0];
+        data = r.ok ? { ok: true, message: '容器已重建' } : { ok: false, message: r.message };
+      }
+    } else {
+      data = await apiFetch(`/containers/${userId}/${action}`, { method: 'POST' });
+    }
     if (data && data.ok) {
       toast(data.message, 'success');
       setTimeout(loadTenants, 500);
     } else if (data) {
-      toast(data.message || '操作失败', 'error');
+      toast(data.error || data.message || '操作失败', 'error');
     }
   } finally {
     setButtonLoading(btn, false);
@@ -961,7 +1115,7 @@ async function batchAction(btn, action) {
       toast(`${action === 'start' ? '启动' : '停止'}: ${ok} 成功, ${fail} 失败`, ok > 0 ? 'success' : 'error');
       setTimeout(loadTenants, 500);
     } else if (data) {
-      toast(data.message || '操作失败', 'error');
+      toast(data.error || data.message || '操作失败', 'error');
     }
     document.getElementById('selectAll').checked = false;
   } finally {
@@ -1084,6 +1238,7 @@ async function showDistributeModal() {
     '已选租户: ' + ids.join(', ') + ' (' + ids.length + ' 个)';
   document.getElementById('distributePresetLlmConfig').checked = false;
   document.getElementById('distributePresetEnvVars').checked = false;
+  document.getElementById('distributePresetAgentPrompts').checked = false;
   showModal('distributeModal');
 
   var $tree = jQuery('#distributeTree');
@@ -1134,6 +1289,7 @@ function getDistributePresets() {
   var presets = [];
   if (document.getElementById('distributePresetLlmConfig')?.checked) presets.push('llm_config');
   if (document.getElementById('distributePresetEnvVars')?.checked) presets.push('env_vars');
+  if (document.getElementById('distributePresetAgentPrompts')?.checked) presets.push('agent_prompts');
   return presets;
 }
 
@@ -1154,7 +1310,12 @@ function showDistributeConfirmModal() {
   var ids = getSelectedIds();
   if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
   var desc = [];
-  if (presets.length) desc.push('快捷分发：' + presets.map(function(p){ return p === 'llm_config' ? '大模型配置' : '环境变量'; }).join('、'));
+  if (presets.length) desc.push('快捷分发：' + presets.map(function(p){
+    if (p === 'llm_config') return '大模型配置';
+    if (p === 'env_vars') return '环境变量';
+    if (p === 'agent_prompts') return '智能体提示词';
+    return p;
+  }).join('、'));
   if (paths.length) desc.push('树中选择的 ' + paths.length + ' 个文件/目录');
   document.getElementById('distributeConfirmMessage').textContent =
     '确定要将 ' + desc.join('；') + ' 分发到 ' + ids.length + ' 个租户吗？';
@@ -1196,18 +1357,18 @@ async function doSubmitDistribute() {
           return t && t.container && t.container.status === 'running';
         });
         if (runningIds.length > 0) {
-          toast('正在重启 ' + runningIds.length + ' 个运行中的容器...', 'info');
+          toast('正在重建 ' + runningIds.length + ' 个运行中的容器...', 'info');
           const batchData = await apiFetch('/containers/batch', {
             method: 'POST',
-            body: JSON.stringify({ action: 'restart', user_ids: runningIds }),
+            body: JSON.stringify({ action: 'recreate', user_ids: runningIds }),
           });
           if (batchData && batchData.ok) {
             const br = batchData.results || [];
             const bok = br.filter(function(r) { return r.ok; }).length;
             const bfail = br.filter(function(r) { return !r.ok; }).length;
-            toast('重启: ' + bok + ' 成功' + (bfail > 0 ? ', ' + bfail + ' 失败' : ''), bok > 0 ? 'success' : 'error');
+            toast('重建: ' + bok + ' 成功' + (bfail > 0 ? ', ' + bfail + ' 失败' : ''), bok > 0 ? 'success' : 'error');
           } else if (batchData) {
-            toast(batchData.message || '重启失败', 'error');
+            toast(batchData.message || '重建失败', 'error');
           }
         }
       }

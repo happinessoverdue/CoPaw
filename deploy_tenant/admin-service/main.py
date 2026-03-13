@@ -590,7 +590,24 @@ async def api_stop_container(user_id: str, request: Request):
 
 @app.post("/admin/api/containers/{user_id}/restart")
 async def api_restart_container(user_id: str, request: Request):
-    """Restart container. Recreates container to apply latest config (env, extra_mounts)."""
+    """Soft restart: stop + start same container, no recreate."""
+    denied = _require_admin(request)
+    if denied:
+        return denied
+
+    if not tenant_db.get_tenant(user_id):
+        return JSONResponse({"ok": False, "message": f"租户 '{user_id}' 不存在"}, status_code=404)
+
+    container_name = f"{INSTANCE_PREFIX}{user_id}"
+    ok, msg = dm.restart_container(container_name)
+    if ok:
+        return {"ok": True, "message": f"容器 '{container_name}' 已重启"}
+    return JSONResponse({"ok": False, "message": msg}, status_code=400)
+
+
+@app.post("/admin/api/containers/{user_id}/recreate")
+async def api_recreate_container(user_id: str, request: Request):
+    """Recreate container: remove and create fresh to apply latest config (env, extra_mounts)."""
     denied = _require_admin(request)
     if denied:
         return denied
@@ -662,8 +679,8 @@ async def api_batch_containers(request: Request):
     action = body.get("action", "")
     user_ids = body.get("user_ids", [])
 
-    if action not in ("start", "stop", "restart"):
-        return JSONResponse({"ok": False, "message": "action 必须是 start、stop 或 restart"}, status_code=400)
+    if action not in ("start", "stop", "recreate"):
+        return JSONResponse({"ok": False, "message": "action 必须是 start、stop 或 recreate"}, status_code=400)
     if not user_ids:
         return JSONResponse({"ok": False, "message": "user_ids 不能为空"}, status_code=400)
 
@@ -685,7 +702,7 @@ async def api_batch_containers(request: Request):
                 network=DOCKER_NETWORK, env=env, extra_volumes=extra_mounts,
                 secret_dir=f"{TENANTS_DATA_BASE_DIR}/{uid}/working.secret",
             )
-        elif action == "restart":
+        elif action == "recreate":
             tenant = tenant_db.get_tenant(uid)
             if not tenant:
                 results.append({"user_id": uid, "ok": False, "message": f"租户 '{uid}' 不存在"})
@@ -712,16 +729,24 @@ async def api_batch_containers(request: Request):
 # PART 6: Admin API — Template Distribution
 # ===================================================================
 
-# 快捷分发预设：每个预设对应模板内要分发的相对路径。目标为各租户 working.secret。
+# 快捷分发预设：每个预设对应模板内要分发的相对路径。
+# llm_config/env_vars 目标为各租户 working.secret；agent_prompts 目标为各租户 working。
 PRESET_PATHS = {
     "llm_config": ["working.secret/providers.json"],
     "env_vars": ["working.secret/envs.json"],
+    "agent_prompts": [
+        "working/AGENTS.md",
+        "working/PROFILE.md",
+        "working/SOUL.md",
+        "working/MEMORY.md",
+        "working/HEARTBEAT.md",
+    ],
 }
 
 
-def _get_template_secret_dir_hint() -> str:
-    """返回模板 working.secret 的宿主机路径提示，用于错误信息。"""
-    return f"{GRIDPAW_ADMIN_DATA_DIR.rstrip('/')}/tenant_working_templates/working.secret/"
+def _get_template_root_hint() -> str:
+    """返回模板根目录的宿主机路径提示，用于错误信息。"""
+    return f"{GRIDPAW_ADMIN_DATA_DIR.rstrip('/')}/tenant_working_templates/"
 
 
 def _validate_preset_files(preset_paths: list[str]) -> tuple[bool, str]:
@@ -736,22 +761,28 @@ def _validate_preset_files(preset_paths: list[str]) -> tuple[bool, str]:
             missing.append(rel.split("/")[-1])
     if not missing:
         return True, ""
-    hint = _get_template_secret_dir_hint()
+    hint = _get_template_root_hint()
     files_str = "、".join(sorted(set(missing)))
     return False, (
         f"模板目录下缺少以下文件: {files_str}。"
-        f"请在目录 {hint} 下创建并填写这些文件。"
+        f"请在 {hint} 下按路径创建并填写这些文件。"
     )
 
 
+# 模板树与分发时忽略的文件/目录名（如 macOS 的 .DS_Store）
+_IGNORED_TEMPLATE_NAMES = frozenset({".DS_Store"})
+
+
 def _build_tree_node(p: Path, rel_path: str) -> dict:
-    """递归构建目录树节点，path 为相对于 TEMPLATES_ROOT 的路径。"""
+    """递归构建目录树节点，path 为相对于 TEMPLATES_ROOT 的路径。忽略 .DS_Store 等系统文件。"""
     name = p.name or TEMPLATES_ROOT.name
     is_dir = p.is_dir()
     node = {"name": name, "path": rel_path, "is_dir": is_dir}
     if is_dir:
         node["children"] = []
         for child in sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            if child.name in _IGNORED_TEMPLATE_NAMES:
+                continue
             child_rel = f"{rel_path}/{child.name}" if rel_path else child.name
             node["children"].append(_build_tree_node(child, child_rel))
     return node
@@ -779,12 +810,12 @@ def _expand_paths(paths: list[str]) -> list[str]:
         if not full.exists():
             continue
         if full.is_file():
-            if rel not in seen:
+            if full.name not in _IGNORED_TEMPLATE_NAMES and rel not in seen:
                 seen.add(rel)
                 result.append(rel)
         else:
             for f in full.rglob("*"):
-                if f.is_file():
+                if f.is_file() and f.name not in _IGNORED_TEMPLATE_NAMES:
                     r = str(f.relative_to(TEMPLATES_ROOT)).replace("\\", "/")
                     if r not in seen:
                         seen.add(r)
@@ -809,7 +840,7 @@ async def api_templates_tree(request: Request):
 @app.post("/admin/api/distribute")
 async def api_distribute(request: Request):
     """将选中的模板文件/目录分发到各租户。勾选目录即递归包含其下所有内容，覆盖已存在文件。
-    支持 presets 快捷分发：llm_config（envs.json+providers.json）、env_vars（envs.json）。
+    支持 presets 快捷分发：llm_config(providers.json)、env_vars(envs.json)、agent_prompts(AGENTS/PROFILE/SOUL/MEMORY/HEARTBEAT.md)。
     """
     denied = _require_admin(request)
     if denied:
