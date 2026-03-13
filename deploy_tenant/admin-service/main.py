@@ -69,7 +69,7 @@ TENANTS_ROOT     = Path("/app/tenants")                  # 租户数据挂载点
 SHARED_FILES_DATA_DIR = Path("/app/shared_files")             # 共享文件存放目录的挂载点,用于共享文件服务读写共享文件
 
 DB_PATH        = Path("/app/data/db/admin.db")               # SQLite 数据库(GRIDPAW_ADMIN_DATA_DIR/db/)
-TEMPLATES_ROOT = Path("/app/data/tenant_working_templates")  # 模板根目录，对标租户容器内 /app（智能体工作目录 /app/working 与 /app/working.secret 的父目录）
+TEMPLATES_ROOT = Path("/app/data/tenant_template")  # 模板根目录，对标租户容器内 /app（智能体工作目录 /app/working 与 /app/working.secret 的父目录）
 LOGIN_HTML     = Path("/app/admin-service/login.html")    # 用户登录页
 ADMIN_HTML     = Path("/app/admin-service/admin.html")    # 管理面板页
 
@@ -127,6 +127,12 @@ async def startup():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)  # 确保 db 目录存在（SQLite 不创建父目录）
     TEMPLATES_ROOT.mkdir(parents=True, exist_ok=True)  # 确保模板根目录存在，便于首次部署
     tenant_db = db.TenantDB(db_path=DB_PATH, instance_prefix=INSTANCE_PREFIX, tenants_data_base_dir=TENANTS_DATA_BASE_DIR)
+    # 修复：确保所有已有租户的目录存在（若被误删则重建空目录）
+    for t in tenant_db.get_all_tenants():
+        uid = t["user_id"]
+        tenant_dir = TENANTS_ROOT / uid
+        (tenant_dir / "working").mkdir(parents=True, exist_ok=True)
+        (tenant_dir / "working.secret").mkdir(parents=True, exist_ok=True)
     dm.init_client()
     logger.info("Admin service started. DB: %s", DB_PATH)
 
@@ -477,11 +483,16 @@ async def api_add_tenant(request: Request):
     pw = body.get("password", "")
     env = body.get("env")
     extra_mounts = body.get("extra_mounts")
+    init_from_template = body.get("init_from_template", True)
 
     ok, msg = tenant_db.add_tenant(uid, uname, pw, env, extra_mounts)
-    if ok:
-        return {"ok": True, "message": f"租户 '{uid}' 创建成功"}
-    return JSONResponse({"ok": False, "message": msg}, status_code=400)
+    if not ok:
+        return JSONResponse({"ok": False, "message": msg}, status_code=400)
+    if init_from_template:
+        init_ok, init_msg = _init_tenant_from_template(uid)
+        if not init_ok:
+            return {"ok": True, "message": f"租户 '{uid}' 创建成功，但模板初始化失败: {init_msg}"}
+    return {"ok": True, "message": f"租户 '{uid}' 创建成功"}
 
 
 @app.put("/admin/api/tenants/{user_id}")
@@ -529,13 +540,53 @@ async def api_import_tenants(request: Request):
     tenant_list = body.get("tenants", [])
     if not isinstance(tenant_list, list):
         return JSONResponse({"ok": False, "message": "tenants 必须是数组"}, status_code=400)
+    init_from_template = body.get("init_from_template", True)
 
-    count, errors = tenant_db.import_tenants(tenant_list)
+    count, errors, imported_ids = tenant_db.import_tenants(tenant_list)
+    init_failures = []
+    if init_from_template and imported_ids:
+        for uid in imported_ids:
+            init_ok, init_msg = _init_tenant_from_template(uid)
+            if not init_ok:
+                init_failures.append(f"{uid}: {init_msg}")
+                logger.warning("Import init template failed for %s: %s", uid, init_msg)
+    msg = f"成功导入 {count} 个租户" + (f"，{len(errors)} 个失败" if errors else "")
+    if init_failures:
+        msg += f"；模板初始化失败: {', '.join(init_failures[:3])}" + ("..." if len(init_failures) > 3 else "")
     return {
         "ok": True,
         "imported": count,
         "errors": errors,
-        "message": f"成功导入 {count} 个租户" + (f"，{len(errors)} 个失败" if errors else ""),
+        "message": msg,
+    }
+
+
+@app.post("/admin/api/tenants/batch-delete")
+async def api_batch_delete_tenants(request: Request):
+    """批量删除租户：停止并删除容器，从数据库删除租户记录。"""
+    denied = _require_admin(request)
+    if denied:
+        return denied
+
+    body = await request.json()
+    user_ids = body.get("user_ids", [])
+    if not user_ids:
+        return JSONResponse({"ok": False, "message": "user_ids 不能为空"}, status_code=400)
+
+    results = []
+    for uid in user_ids:
+        container_name = f"{INSTANCE_PREFIX}{uid}"
+        dm.stop_container(container_name)
+        dm.remove_container(container_name)
+        ok, msg = tenant_db.delete_tenant(uid)
+        results.append({"user_id": uid, "ok": ok, "message": msg})
+
+    ok_count = sum(1 for r in results if r["ok"])
+    fail_count = len(results) - ok_count
+    return {
+        "ok": True,
+        "results": results,
+        "message": f"批量删除: {ok_count} 成功" + (f"，{fail_count} 失败" if fail_count else ""),
     }
 
 
@@ -679,8 +730,8 @@ async def api_batch_containers(request: Request):
     action = body.get("action", "")
     user_ids = body.get("user_ids", [])
 
-    if action not in ("start", "stop", "recreate"):
-        return JSONResponse({"ok": False, "message": "action 必须是 start、stop 或 recreate"}, status_code=400)
+    if action not in ("start", "stop", "restart", "recreate", "remove"):
+        return JSONResponse({"ok": False, "message": "action 必须是 start、stop、restart、recreate 或 remove"}, status_code=400)
     if not user_ids:
         return JSONResponse({"ok": False, "message": "user_ids 不能为空"}, status_code=400)
 
@@ -702,6 +753,11 @@ async def api_batch_containers(request: Request):
                 network=DOCKER_NETWORK, env=env, extra_volumes=extra_mounts,
                 secret_dir=f"{TENANTS_DATA_BASE_DIR}/{uid}/working.secret",
             )
+        elif action == "restart":
+            if not tenant_db.get_tenant(uid):
+                results.append({"user_id": uid, "ok": False, "message": f"租户 '{uid}' 不存在"})
+                continue
+            ok, msg = dm.restart_container(container_name)
         elif action == "recreate":
             tenant = tenant_db.get_tenant(uid)
             if not tenant:
@@ -718,6 +774,12 @@ async def api_batch_containers(request: Request):
                 force_recreate=True,
                 secret_dir=f"{TENANTS_DATA_BASE_DIR}/{uid}/working.secret",
             )
+        elif action == "remove":
+            if not tenant_db.get_tenant(uid):
+                results.append({"user_id": uid, "ok": False, "message": f"租户 '{uid}' 不存在"})
+                continue
+            dm.stop_container(container_name)
+            ok, msg = dm.remove_container(container_name)
         else:
             ok, msg = dm.stop_container(container_name)
         results.append({"user_id": uid, "ok": ok, "message": msg})
@@ -746,7 +808,7 @@ PRESET_PATHS = {
 
 def _get_template_root_hint() -> str:
     """返回模板根目录的宿主机路径提示，用于错误信息。"""
-    return f"{GRIDPAW_ADMIN_DATA_DIR.rstrip('/')}/tenant_working_templates/"
+    return f"{GRIDPAW_ADMIN_DATA_DIR.rstrip('/')}/tenant_template/"
 
 
 def _validate_preset_files(preset_paths: list[str]) -> tuple[bool, str]:
@@ -771,6 +833,32 @@ def _validate_preset_files(preset_paths: list[str]) -> tuple[bool, str]:
 
 # 模板树与分发时忽略的文件/目录名（如 macOS 的 .DS_Store）
 _IGNORED_TEMPLATE_NAMES = frozenset({".DS_Store"})
+
+
+def _init_tenant_from_template(user_id: str) -> tuple[bool, str]:
+    """将模板目录的 working 和 working.secret 拷贝到租户目录，用于新租户初始化。
+    返回 (ok, message)。租户目录在 admin 容器内为 TENANTS_ROOT/user_id。"""
+    tenant_dir = TENANTS_ROOT / user_id
+    tenant_dir.mkdir(parents=True, exist_ok=True)
+    init_errors = []
+    for subdir in ("working", "working.secret"):
+        src = TEMPLATES_ROOT / subdir
+        dst = tenant_dir / subdir
+        try:
+            if not src.exists():
+                dst.mkdir(parents=True, exist_ok=True)
+                continue
+            if src.is_dir():
+                shutil.copytree(src, dst, dirs_exist_ok=True, copy_function=shutil.copy)
+            else:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(src, dst)
+        except Exception as e:
+            init_errors.append(f"{subdir}: {e}")
+            logger.warning("Init tenant %s from template failed for %s: %s", user_id, subdir, e)
+    if init_errors:
+        return False, "; ".join(init_errors)
+    return True, "模板初始化完成"
 
 
 def _build_tree_node(p: Path, rel_path: str) -> dict:

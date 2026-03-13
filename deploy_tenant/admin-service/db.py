@@ -234,8 +234,8 @@ class TenantDB:
             return False, f"租户 '{user_id}' 不存在"
         return True, "ok"
 
-    def import_tenants(self, tenant_list: list[dict]) -> tuple[int, list[str]]:
-        """Bulk import tenants. Returns (success_count, error_messages).
+    def import_tenants(self, tenant_list: list[dict]) -> tuple[int, list[str], list[str]]:
+        """Bulk import tenants. Returns (success_count, error_messages, imported_user_ids).
 
         Each item should have: user_id, user_name, password, and optionally env.
         Existing user_ids are skipped with an error message.
@@ -243,6 +243,7 @@ class TenantDB:
         """
         success = 0
         errors = []
+        imported_ids: list[str] = []
         for i, t in enumerate(tenant_list):
             uid = t.get("user_id", "")
             if not uid:
@@ -255,6 +256,7 @@ class TenantDB:
             )
             if ok:
                 success += 1
+                imported_ids.append(uid)
             else:
                 errors.append(f"{uid}: {msg}")
-        return success, errors
+        return success, errors, imported_ids

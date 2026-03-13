@@ -40,11 +40,12 @@ services:
       - ${TENANTS_DATA_BASE_DIR:-/root/var/gridpaw/tenants_data}:/app/tenants:rw           # 所有租户的数据根目录，分发时写入，在该目录下每个租户一个子目录，子目录名即为租户id(称之为租户数据目录，租户数据目录下会有working和working.secret两个子目录，分别存放智能体工作目录和敏感配置目录)
       - ${SHARED_FILES_DATA_DIR:-/root/var/gridpaw/shared_files}:/app/shared_files:rw   # 共享文件服务的文件存放目录，用于共享文件服务读写共享文件
     environment:
+      - DOCKER_NETWORK=gridpaw-multi-tenant-service_gridpaw-net     # 租户容器需加入的网络（由项目名+网络名决定）
       - TENANT_IMAGE=${TENANT_IMAGE:-gridpaw-tenant:latest}          # 租户容器镜像名
       - INSTANCE_PREFIX=${INSTANCE_PREFIX:-gridpaw-instance-}        # 租户容器名前缀
-      - TENANTS_DATA_BASE_DIR=${TENANTS_DATA_BASE_DIR:-/root/var/gridpaw/tenants_data}    # 租户数据宿主机路径
       - GRIDPAW_ADMIN_DATA_DIR=${GRIDPAW_ADMIN_DATA_DIR:-/root/var/gridpaw/admin_data}     # Admin 数据宿主机路径
-      - DOCKER_NETWORK=gridpaw-multi-tenant-service_gridpaw-net     # 租户容器需加入的网络（由项目名+网络名决定）
+      - TENANTS_DATA_BASE_DIR=${TENANTS_DATA_BASE_DIR:-/root/var/gridpaw/tenants_data}    # 租户数据宿主机路径
+      - SHARED_FILES_DATA_DIR=${SHARED_FILES_DATA_DIR:-/root/var/gridpaw/shared_files}     # 共享文件服务文件存放目录宿主机路径
       - FILE_SERVICE_BASE_URL=${FILE_SERVICE_BASE_URL:-http://127.0.0.1}  # 共享文件对外的IP地址，无需填写端口。因为共享文件服务与admin服务是同一个fastapi应用实现的，一起被nginx代理做了统一的对外代理。
       - NGINX_PORT=${NGINX_PORT:-8087}               # Nginx 端口，用于拼接共享文件下载 URL
     networks:

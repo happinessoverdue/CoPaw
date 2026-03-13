@@ -37,7 +37,10 @@
 
   /* ---- Toolbar ---- */
   .toolbar {
-    display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; align-items: center;
+    display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;
+  }
+  .toolbar-row {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
   }
   .btn {
     display: inline-flex; align-items: center; gap: 0.375rem;
@@ -71,7 +74,7 @@
     vertical-align: -0.15em; flex-shrink: 0;
   }
   @keyframes btn-spin { to { transform: rotate(360deg); } }
-  .toolbar-spacer { flex: 1; }
+  .toolbar-spacer { flex: 1; min-width: 0; }
   .auto-refresh-label { font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; gap: 0.375rem; }
   .auto-refresh-label input { accent-color: #3b82f6; }
 
@@ -169,6 +172,17 @@
   }
   .form-group textarea { min-height: 100px; resize: vertical; }
   .form-group .hint { font-size: 0.75rem; color: #64748b; margin-top: 0.25rem; }
+  /* 勾选项专用布局：checkbox + 文案同一行，hint 换行在下 */
+  .form-group-checkbox .form-check-row {
+    display: flex; align-items: center; gap: 0.5rem; cursor: pointer; flex-wrap: nowrap;
+  }
+  .form-group-checkbox .form-check-row input[type="checkbox"] {
+    width: auto; flex-shrink: 0; margin: 0; accent-color: #3b82f6;
+  }
+  .form-group-checkbox .form-check-row .form-check-label {
+    flex: 1; min-width: 0; font-weight: 500; color: #cbd5e1; font-size: 0.8125rem;
+  }
+  .form-group-checkbox .hint { margin-left: 0; }
   .form-group.info-group .info-block {
     padding: 0.75rem; background: rgba(15,23,42,0.6); border: 1px solid rgba(100,116,139,0.4);
     border-radius: 6px; font-size: 0.8125rem;
@@ -232,22 +246,21 @@
   .mounts-add-btn { margin-top: 0.25rem; }
   .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem; }
 
-  /* ---- Log panel ---- */
-  .log-panel {
-    display: none; margin-top: 1rem; background: #1e293b; border: 1px solid #334155;
-    border-radius: 8px; overflow: hidden;
+  /* ---- Log modal ---- */
+  .log-modal .modal {
+    max-width: 90vw; width: 800px; max-height: 85vh; display: flex; flex-direction: column;
   }
-  .log-panel.active { display: block; }
-  .log-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0.625rem 0.75rem; background: #1e293b; border-bottom: 1px solid #334155;
+  .log-modal .log-header {
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+    padding: 0.75rem 1rem; border-bottom: 1px solid #334155; background: #1e293b;
   }
-  .log-header span { font-size: 0.8125rem; font-weight: 600; color: #94a3b8; }
-  .log-content {
-    padding: 0.75rem; font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  .log-modal .log-header h2 { font-size: 1rem; font-weight: 600; color: #f1f5f9; margin: 0; }
+  .log-modal .log-content {
+    flex: 1; min-height: 0; padding: 1rem;
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
     font-size: 0.75rem; line-height: 1.5; color: #cbd5e1;
-    max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
-    background: #0f172a;
+    overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    background: #0f172a; border-radius: 6px; margin-top: 0;
   }
 
   /* ---- Toast ---- */
@@ -332,17 +345,25 @@
 
   <!-- Toolbar -->
   <div class="toolbar">
-    <button class="btn btn-blue" onclick="showAddModal()">+ 新增租户</button>
-    <button class="btn btn-blue" onclick="showImportModal()">导入 JSON</button>
-    <button class="btn btn-success" id="btnBatchStart" onclick="batchAction(this,'start')">批量启动</button>
-    <button class="btn btn-danger" id="btnBatchStop" onclick="batchAction(this,'stop')">批量停止</button>
-    <button class="btn btn-blue" id="btnDistribute" onclick="showDistributeModal()">批量分发</button>
-    <div class="toolbar-spacer"></div>
-    <label class="auto-refresh-label">
-      <input type="checkbox" id="autoRefresh" checked onchange="toggleAutoRefresh()">
-      自动刷新 (5s)
-    </label>
-    <button class="btn btn-success" onclick="loadTenants()">刷新</button>
+    <div class="toolbar-row">
+      <button class="btn btn-blue" onclick="showAddModal()">+ 新增租户</button>
+      <button class="btn btn-blue" onclick="showImportModal()">从JSON新增</button>
+      <button class="btn btn-blue" id="btnDistribute" onclick="showDistributeModal()">文件分发</button>
+      <div class="toolbar-spacer"></div>
+      <label class="auto-refresh-label">
+        <input type="checkbox" id="autoRefresh" checked onchange="toggleAutoRefresh()">
+        自动刷新 (5s)
+      </label>
+      <button class="btn btn-success" onclick="loadTenants()">刷新</button>
+    </div>
+    <div class="toolbar-row">
+      <button class="btn btn-success" id="btnBatchStart" onclick="batchAction(this,'start')">批量启动</button>
+      <button class="btn btn-danger" id="btnBatchStop" onclick="confirmBatchAction(this,'stop')">批量停止</button>
+      <button class="btn btn-purple" id="btnBatchRestart" onclick="confirmBatchAction(this,'restart')">批量重启</button>
+      <button class="btn btn-purple" id="btnBatchRecreate" onclick="confirmBatchAction(this,'recreate')">批量重建</button>
+      <button class="btn btn-danger" id="btnBatchRemoveContainer" onclick="confirmBatchRemoveContainer()">批量删除容器</button>
+      <button class="btn btn-danger" id="btnBatchDeleteTenant" onclick="confirmBatchDeleteTenant()">批量删除租户</button>
+    </div>
   </div>
 
   <!-- Tenant Table -->
@@ -384,15 +405,6 @@
         <tr class="empty-row"><td colspan="6">加载中...</td></tr>
       </tbody>
     </table>
-  </div>
-
-  <!-- Log Panel -->
-  <div class="log-panel" id="logPanel">
-    <div class="log-header">
-      <span id="logTitle">容器日志</span>
-      <button class="btn btn-sm" onclick="closeLogPanel()">关闭</button>
-    </div>
-    <div class="log-content" id="logContent"></div>
   </div>
 </div>
 
@@ -459,6 +471,13 @@
       <textarea id="formEnv" placeholder='{"DASHSCOPE_API_KEY": "sk-xxx"}'></textarea>
       <div class="hint">JSON 格式的键值对，留空则使用默认环境变量</div>
     </div>
+    <div class="form-group form-group-checkbox" id="formInitFromTemplateGroup">
+      <label class="form-check-row">
+        <input type="checkbox" id="formInitFromTemplate" checked>
+        <span class="form-check-label">使用智能体模板配置进行初始化</span>
+      </label>
+      <div class="hint">创建租户后自动将租户模板目录里的 working 和 working.secret 拷贝到租户目录</div>
+    </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('tenantModal')">取消</button>
       <button class="btn btn-primary" onclick="submitTenant()">确定</button>
@@ -478,6 +497,13 @@
       <label for="importText">或直接粘贴 JSON 内容</label>
       <textarea id="importText" rows="16"></textarea>
       <div class="hint">JSON 数组，每项需包含 user_id、user_name、password 字段</div>
+    </div>
+    <div class="form-group form-group-checkbox">
+      <label class="form-check-row">
+        <input type="checkbox" id="importInitFromTemplate" checked>
+        <span class="form-check-label">使用智能体模板配置进行初始化</span>
+      </label>
+      <div class="hint">创建租户后自动将租户模板目录里的 working 和 working.secret 拷贝到租户目录</div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('importModal')">取消</button>
@@ -558,6 +584,17 @@
       <button class="btn" onclick="closeModal('confirmModal')">取消</button>
       <button class="btn btn-danger" id="confirmBtn" onclick="">确定</button>
     </div>
+  </div>
+</div>
+
+<!-- Log Modal -->
+<div class="modal-overlay log-modal" id="logModal" onclick="if(event.target===this)closeLogPanel()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="log-header">
+      <h2 id="logTitle">容器日志</h2>
+      <button class="btn btn-sm" onclick="closeLogPanel()">关闭</button>
+    </div>
+    <div class="log-content" id="logContent"></div>
   </div>
 </div>
 
@@ -714,10 +751,10 @@ function renderTable() {
     const isRunning = st === 'running';
     const hasContainer = st !== 'not_found';  // 容器已存在(含已停止)
     const grp1 = isRunning
-      ? `<button class="btn btn-sm btn-danger" onclick="containerAction(this,'${t.user_id}','stop')">停止</button>
-         <button class="btn btn-sm btn-purple" onclick="containerAction(this,'${t.user_id}','restart')">重启</button>`
+      ? `<button class="btn btn-sm btn-danger" onclick="confirmContainerAction(this,'${t.user_id}','stop')">停止</button>
+         <button class="btn btn-sm btn-purple" onclick="confirmContainerAction(this,'${t.user_id}','restart')">重启</button>`
       : `<button class="btn btn-sm btn-success" onclick="containerAction(this,'${t.user_id}','start')">启动</button>`;
-    const grp2 = hasContainer ? `<button class="btn btn-sm btn-purple" onclick="containerAction(this,'${t.user_id}','recreate')">重建</button>` : '';
+    const grp2 = hasContainer ? `<button class="btn btn-sm btn-purple" onclick="confirmContainerAction(this,'${t.user_id}','recreate')">重建</button>` : '';
     const grp3 = !isRunning
       ? `${hasContainer ? `<button class="btn btn-sm btn-danger" onclick="confirmRemoveContainer('${t.user_id}')">删除容器</button>` : ''}
          <button class="btn btn-sm btn-danger" onclick="confirmDelete('${t.user_id}')">删除租户</button>`
@@ -794,7 +831,7 @@ function getSelectedIds() {
 
 function updateBatchButtonsState() {
   const n = getSelectedIds().length;
-  ['btnBatchStart', 'btnBatchStop', 'btnDistribute'].forEach(id => {
+  ['btnBatchStart', 'btnBatchStop', 'btnBatchRestart', 'btnBatchRecreate', 'btnBatchRemoveContainer', 'btnBatchDeleteTenant', 'btnDistribute'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = n === 0;
   });
@@ -819,6 +856,8 @@ function showAddModal() {
   document.getElementById('formInstanceInfoGroup').style.display = 'none';
   document.getElementById('formInstanceConfigGroup').style.display = 'none';
   document.getElementById('formMountsGroupAdd').style.display = 'block';
+  document.getElementById('formInitFromTemplateGroup').style.display = 'block';
+  document.getElementById('formInitFromTemplate').checked = true;
   renderMountsListAdd([]);
   document.getElementById('formEnv').value = '';
   showModal('tenantModal');
@@ -843,6 +882,7 @@ async function showEditModal(userId) {
   document.getElementById('formInstanceInfoGroup').style.display = 'block';
   document.getElementById('formInstanceConfigGroup').style.display = 'block';
   document.getElementById('formMountsGroupAdd').style.display = 'none';
+  document.getElementById('formInitFromTemplateGroup').style.display = 'none';
   var ii = data.instance_info || {};
   var ic = data.instance_config || {};
   var statusEl = document.getElementById('formInstanceStatus');
@@ -994,6 +1034,7 @@ async function submitTenant() {
   if (password) body.password = password;  // 编辑时留空则不更新密码
   if (env !== null) body.env = env;
   body.extra_mounts = extraMounts;
+  if (mode === 'add') body.init_from_template = document.getElementById('formInitFromTemplate').checked;
 
   let data;
   if (mode === 'add') {
@@ -1069,6 +1110,23 @@ async function doDelete(userId) {
 
 // ---- Container actions ----
 
+function confirmContainerAction(btn, userId, action) {
+  const t = tenantsData.find(x => x.user_id === userId);
+  const displayName = t ? (t.user_name || t.user_id) : userId;
+  const actionLabels = { stop: '停止', restart: '重启', recreate: '重建' };
+  const label = actionLabels[action] || action;
+  document.getElementById('confirmTitle').textContent = label + '容器';
+  document.getElementById('confirmMessage').textContent =
+    `确定要${label}租户「${displayName}」的容器吗？`;
+  document.getElementById('confirmBtn').onclick = () => {
+    closeModal('confirmModal');
+    containerAction(btn, userId, action);
+  };
+  document.getElementById('confirmBtn').textContent = '确定';
+  document.getElementById('confirmBtn').className = action === 'stop' ? 'btn btn-danger' : 'btn btn-purple';
+  showModal('confirmModal');
+}
+
 async function containerAction(btn, userId, action) {
   const labels = { start: '启动中...', stop: '停止中...', restart: '重启中...', recreate: '重建中...' };
   setButtonLoading(btn, true, labels[action]);
@@ -1099,6 +1157,23 @@ async function containerAction(btn, userId, action) {
 
 // ---- Batch actions ----
 
+function confirmBatchAction(btn, action) {
+  const ids = getSelectedIds();
+  if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
+  const actionLabels = { stop: '停止', restart: '重启', recreate: '重建' };
+  const label = actionLabels[action] || action;
+  document.getElementById('confirmTitle').textContent = '批量' + label + '容器';
+  document.getElementById('confirmMessage').textContent =
+    `确定要对选中的 ${ids.length} 个租户执行批量${label}吗？`;
+  document.getElementById('confirmBtn').onclick = () => {
+    closeModal('confirmModal');
+    batchAction(btn, action);
+  };
+  document.getElementById('confirmBtn').textContent = '确定';
+  document.getElementById('confirmBtn').className = action === 'stop' ? 'btn btn-danger' : 'btn btn-purple';
+  showModal('confirmModal');
+}
+
 async function batchAction(btn, action) {
   const ids = getSelectedIds();
   if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
@@ -1112,7 +1187,9 @@ async function batchAction(btn, action) {
       const results = data.results || [];
       const ok = results.filter(r => r.ok).length;
       const fail = results.filter(r => !r.ok).length;
-      toast(`${action === 'start' ? '启动' : '停止'}: ${ok} 成功, ${fail} 失败`, ok > 0 ? 'success' : 'error');
+      const labels = { start: '启动', stop: '停止', restart: '重启', recreate: '重建' };
+      const label = labels[action] || action;
+      toast(`${label}: ${ok} 成功, ${fail} 失败`, ok > 0 ? 'success' : 'error');
       setTimeout(loadTenants, 500);
     } else if (data) {
       toast(data.error || data.message || '操作失败', 'error');
@@ -1120,6 +1197,80 @@ async function batchAction(btn, action) {
     document.getElementById('selectAll').checked = false;
   } finally {
     setButtonLoading(btn, false);
+  }
+}
+
+function confirmBatchRemoveContainer() {
+  const ids = getSelectedIds();
+  if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
+  document.getElementById('confirmTitle').textContent = '批量删除容器';
+  document.getElementById('confirmMessage').textContent =
+    `确定要删除选中的 ${ids.length} 个租户的容器吗？租户配置保留，后续可重新启动创建新容器。`;
+  document.getElementById('confirmBtn').onclick = () => doBatchRemoveContainer();
+  document.getElementById('confirmBtn').className = 'btn btn-danger';
+  showModal('confirmModal');
+}
+
+async function doBatchRemoveContainer() {
+  const ids = getSelectedIds();
+  const btn = document.getElementById('confirmBtn');
+  setButtonLoading(btn, true, '删除中...');
+  try {
+    const data = await apiFetch('/containers/batch', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'remove', user_ids: ids }),
+    });
+    if (data && data.ok) {
+      closeModal('confirmModal');
+      const results = data.results || [];
+      const ok = results.filter(r => r.ok).length;
+      const fail = results.filter(r => !r.ok).length;
+      toast(`删除容器: ${ok} 成功, ${fail} 失败`, ok > 0 ? 'success' : 'error');
+      document.getElementById('selectAll').checked = false;
+      setTimeout(loadTenants, 500);
+    } else if (data) {
+      toast(data.message || '批量删除容器失败', 'error');
+    }
+  } finally {
+    setButtonLoading(btn, false);
+    closeModal('confirmModal');
+  }
+}
+
+function confirmBatchDeleteTenant() {
+  const ids = getSelectedIds();
+  if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
+  document.getElementById('confirmTitle').textContent = '批量删除租户';
+  document.getElementById('confirmMessage').textContent =
+    `确定要删除选中的 ${ids.length} 个租户吗？该操作不可撤销，租户配置和容器都将被删除。`;
+  document.getElementById('confirmBtn').onclick = () => doBatchDeleteTenant();
+  document.getElementById('confirmBtn').className = 'btn btn-danger';
+  showModal('confirmModal');
+}
+
+async function doBatchDeleteTenant() {
+  const ids = getSelectedIds();
+  const btn = document.getElementById('confirmBtn');
+  setButtonLoading(btn, true, '删除中...');
+  try {
+    const data = await apiFetch('/tenants/batch-delete', {
+      method: 'POST',
+      body: JSON.stringify({ user_ids: ids }),
+    });
+    if (data && data.ok) {
+      closeModal('confirmModal');
+      const results = data.results || [];
+      const ok = results.filter(r => r.ok).length;
+      const fail = results.filter(r => !r.ok).length;
+      toast(`删除租户: ${ok} 成功, ${fail} 失败`, ok > 0 ? 'success' : 'error');
+      document.getElementById('selectAll').checked = false;
+      loadTenants();
+    } else if (data) {
+      toast(data.message || '批量删除租户失败', 'error');
+    }
+  } finally {
+    setButtonLoading(btn, false);
+    closeModal('confirmModal');
   }
 }
 
@@ -1132,10 +1283,9 @@ function openGridPaw(userId) {
 // ---- Logs ----
 
 async function showLogs(userId) {
-  const panel = document.getElementById('logPanel');
   document.getElementById('logTitle').textContent = `日志: ${instancePrefix}${userId}`;
   document.getElementById('logContent').textContent = '加载中...';
-  panel.classList.add('active');
+  showModal('logModal');
 
   const data = await apiFetch(`/containers/${userId}/logs?tail=200`);
   if (data && data.ok) {
@@ -1148,7 +1298,7 @@ async function showLogs(userId) {
 }
 
 function closeLogPanel() {
-  document.getElementById('logPanel').classList.remove('active');
+  closeModal('logModal');
 }
 
 // ---- Import ----
@@ -1191,9 +1341,10 @@ async function submitImport() {
 
   if (!Array.isArray(tenants)) { toast('JSON 内容必须是数组', 'error'); return; }
 
+  const initFromTemplate = document.getElementById('importInitFromTemplate').checked;
   const data = await apiFetch('/tenants/import', {
     method: 'POST',
-    body: JSON.stringify({ tenants }),
+    body: JSON.stringify({ tenants, init_from_template: initFromTemplate }),
   });
   if (data) {
     toast(data.message, data.imported > 0 ? 'success' : 'error');

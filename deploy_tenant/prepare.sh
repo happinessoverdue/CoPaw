@@ -348,6 +348,26 @@ _validate_services() {
 cmd_up() {
     local svc=("$@")
     _validate_services "${svc[@]}"
+    # 若启动 admin（未指定服务时启动全部，或明确指定 admin），则先确保宿主机数据目录存在
+    local need_admin=0
+    if [ ${#svc[@]} -eq 0 ]; then
+        need_admin=1
+    else
+        for s in "${svc[@]}"; do
+            [ "$s" = "admin" ] && need_admin=1 && break
+        done
+    fi
+    if [ "$need_admin" -eq 1 ]; then
+        local admin_dir tenants_dir shared_dir
+        admin_dir="$(_read_env GRIDPAW_ADMIN_DATA_DIR)"
+        admin_dir="${admin_dir:-/root/var/gridpaw/admin_data}"
+        tenants_dir="$(_read_env TENANTS_DATA_BASE_DIR)"
+        tenants_dir="${tenants_dir:-/root/var/gridpaw/tenants_data}"
+        shared_dir="$(_read_env SHARED_FILES_DATA_DIR)"
+        shared_dir="${shared_dir:-/root/var/gridpaw/shared_files}"
+        echo "==> Ensuring host data dirs exist..."
+        mkdir -p "${admin_dir}" "${tenants_dir}" "${shared_dir}"
+    fi
     if [ ${#svc[@]} -gt 0 ]; then
         echo "==> Starting: ${svc[*]} ..."
     else
