@@ -349,6 +349,7 @@
       <button class="btn btn-blue" onclick="showAddModal()">+ 新增租户</button>
       <button class="btn btn-blue" onclick="showImportModal()">从JSON新增</button>
       <button class="btn btn-blue" id="btnDistribute" onclick="showDistributeModal()">文件分发</button>
+      <button class="btn btn-purple" id="btnResetTenantData" onclick="showResetTenantDataModal()" title="将选中租户的数据完全重置为模板状态">重置租户数据</button>
       <div class="toolbar-spacer"></div>
       <label class="auto-refresh-label">
         <input type="checkbox" id="autoRefresh" checked onchange="toggleAutoRefresh()">
@@ -565,12 +566,34 @@
     <p id="distributeConfirmMessage" class="distribute-confirm-msg"></p>
     <label class="distribute-confirm-option-wrap">
       <input type="checkbox" id="distributeConfirmRestart" checked>
-      <span class="distribute-confirm-label">分发后立即重建运行中的容器</span>
+      <span class="distribute-confirm-label">分发后立即重启运行中的容器</span>
     </label>
-    <div class="distribute-confirm-hint">勾选后，分发成功将对运行中的租户执行重建以加载新配置</div>
+    <div class="distribute-confirm-hint">勾选后，分发成功将对运行中的租户执行重启以加载新配置</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('distributeConfirmModal')">取消</button>
       <button class="btn btn-primary" id="btnDistributeConfirmOk" onclick="doSubmitDistribute()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Tenant Data Confirm Modal -->
+<div class="modal-overlay" id="resetTenantDataConfirmModal">
+  <div class="modal" style="max-width:500px">
+    <h2>确认重置租户数据</h2>
+    <p id="resetTenantDataConfirmMessage" class="distribute-confirm-msg" style="margin-bottom:1rem"></p>
+    <div class="reset-tenant-data-logic-hint">
+      <strong>操作流程：</strong>
+      <ol style="margin:0.5rem 0 0 1.25rem;padding:0;color:#94a3b8;font-size:0.875rem;line-height:1.6">
+        <li>停止运行中的容器</li>
+        <li>删除租户目录下所有子项（保留租户目录本身）</li>
+        <li>从模板目录（tenant_template）拷贝所有内容到租户目录</li>
+        <li>若原在运行则重新启动容器</li>
+      </ol>
+      <p style="margin:0.75rem 0 0;color:#f87171;font-size:0.875rem">此操作不可恢复，租户现有数据将全部丢失。</p>
+    </div>
+    <div class="modal-actions" style="margin-top:1.25rem">
+      <button class="btn" onclick="closeModal('resetTenantDataConfirmModal')">取消</button>
+      <button class="btn btn-purple" id="btnResetTenantDataConfirmOk" onclick="doSubmitResetTenantData()">确定重置</button>
     </div>
   </div>
 </div>
@@ -580,6 +603,12 @@
   <div class="modal" style="max-width:400px">
     <h2 id="confirmTitle">确认操作</h2>
     <p id="confirmMessage" style="color:#94a3b8;font-size:0.875rem;margin-bottom:1.25rem"></p>
+    <div id="confirmDeleteDataDirGroup" style="display:none;margin-bottom:1.25rem">
+      <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;color:#94a3b8;font-size:0.875rem">
+        <input type="checkbox" id="confirmDeleteDataDir">
+        <span>同时删除租户挂载的数据目录（工作目录、配置、密钥等将一并清除，不可恢复）</span>
+      </label>
+    </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('confirmModal')">取消</button>
       <button class="btn btn-danger" id="confirmBtn" onclick="">确定</button>
@@ -1055,6 +1084,7 @@ async function submitTenant() {
 // ---- Remove container ----
 
 function confirmRemoveContainer(userId) {
+  document.getElementById('confirmDeleteDataDirGroup').style.display = 'none';
   document.getElementById('confirmTitle').textContent = '删除容器';
   document.getElementById('confirmMessage').textContent = `确定要删除租户「${userId}」的容器吗？租户配置保留，后续可重新启动创建新容器。`;
   document.getElementById('confirmBtn').onclick = () => doRemoveContainer(userId);
@@ -1083,6 +1113,8 @@ async function doRemoveContainer(userId) {
 // ---- Delete tenant ----
 
 function confirmDelete(userId) {
+  document.getElementById('confirmDeleteDataDirGroup').style.display = 'block';
+  document.getElementById('confirmDeleteDataDir').checked = false;
   document.getElementById('confirmTitle').textContent = '删除租户';
   document.getElementById('confirmMessage').textContent = `确定要删除租户「${userId}」吗？该操作不可撤销，租户配置和容器都将被删除。`;
   document.getElementById('confirmBtn').onclick = () => doDelete(userId);
@@ -1092,9 +1124,11 @@ function confirmDelete(userId) {
 
 async function doDelete(userId) {
   const btn = document.getElementById('confirmBtn');
+  const deleteDataDir = document.getElementById('confirmDeleteDataDir').checked;
   setButtonLoading(btn, true, '删除中...');
   try {
-    const data = await apiFetch(`/tenants/${userId}`, { method: 'DELETE' });
+    const qs = deleteDataDir ? '?delete_data_dir=true' : '';
+    const data = await apiFetch(`/tenants/${userId}${qs}`, { method: 'DELETE' });
     if (data && data.ok) {
       closeModal('confirmModal');
       toast(data.message, 'success');
@@ -1111,6 +1145,7 @@ async function doDelete(userId) {
 // ---- Container actions ----
 
 function confirmContainerAction(btn, userId, action) {
+  document.getElementById('confirmDeleteDataDirGroup').style.display = 'none';
   const t = tenantsData.find(x => x.user_id === userId);
   const displayName = t ? (t.user_name || t.user_id) : userId;
   const actionLabels = { stop: '停止', restart: '重启', recreate: '重建' };
@@ -1158,6 +1193,7 @@ async function containerAction(btn, userId, action) {
 // ---- Batch actions ----
 
 function confirmBatchAction(btn, action) {
+  document.getElementById('confirmDeleteDataDirGroup').style.display = 'none';
   const ids = getSelectedIds();
   if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
   const actionLabels = { stop: '停止', restart: '重启', recreate: '重建' };
@@ -1201,6 +1237,7 @@ async function batchAction(btn, action) {
 }
 
 function confirmBatchRemoveContainer() {
+  document.getElementById('confirmDeleteDataDirGroup').style.display = 'none';
   const ids = getSelectedIds();
   if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
   document.getElementById('confirmTitle').textContent = '批量删除容器';
@@ -1238,6 +1275,8 @@ async function doBatchRemoveContainer() {
 }
 
 function confirmBatchDeleteTenant() {
+  document.getElementById('confirmDeleteDataDirGroup').style.display = 'block';
+  document.getElementById('confirmDeleteDataDir').checked = false;
   const ids = getSelectedIds();
   if (ids.length === 0) { toast('请先勾选要操作的租户', 'error'); return; }
   document.getElementById('confirmTitle').textContent = '批量删除租户';
@@ -1250,12 +1289,13 @@ function confirmBatchDeleteTenant() {
 
 async function doBatchDeleteTenant() {
   const ids = getSelectedIds();
+  const deleteDataDir = document.getElementById('confirmDeleteDataDir').checked;
   const btn = document.getElementById('confirmBtn');
   setButtonLoading(btn, true, '删除中...');
   try {
     const data = await apiFetch('/tenants/batch-delete', {
       method: 'POST',
-      body: JSON.stringify({ user_ids: ids }),
+      body: JSON.stringify({ user_ids: ids, delete_data_dir: deleteDataDir }),
     });
     if (data && data.ok) {
       closeModal('confirmModal');
@@ -1508,24 +1548,67 @@ async function doSubmitDistribute() {
           return t && t.container && t.container.status === 'running';
         });
         if (runningIds.length > 0) {
-          toast('正在重建 ' + runningIds.length + ' 个运行中的容器...', 'info');
+          toast('正在重启 ' + runningIds.length + ' 个运行中的容器...', 'info');
           const batchData = await apiFetch('/containers/batch', {
             method: 'POST',
-            body: JSON.stringify({ action: 'recreate', user_ids: runningIds }),
+            body: JSON.stringify({ action: 'restart', user_ids: runningIds }),
           });
           if (batchData && batchData.ok) {
             const br = batchData.results || [];
             const bok = br.filter(function(r) { return r.ok; }).length;
             const bfail = br.filter(function(r) { return !r.ok; }).length;
-            toast('重建: ' + bok + ' 成功' + (bfail > 0 ? ', ' + bfail + ' 失败' : ''), bok > 0 ? 'success' : 'error');
+            toast('重启: ' + bok + ' 成功' + (bfail > 0 ? ', ' + bfail + ' 失败' : ''), bok > 0 ? 'success' : 'error');
           } else if (batchData) {
-            toast(batchData.message || '重建失败', 'error');
+            toast(batchData.message || '重启失败', 'error');
           }
         }
       }
       setTimeout(loadTenants, 500);
     } else if (data) {
       toast(data.message || '分发失败', 'error');
+    }
+  } finally {
+    setButtonLoading(btn, false);
+  }
+}
+
+// ---- Reset Tenant Data ----
+
+function showResetTenantDataModal() {
+  var ids = getSelectedIds();
+  if (ids.length === 0) {
+    toast('请先勾选要操作的租户', 'error');
+    return;
+  }
+  document.getElementById('resetTenantDataConfirmMessage').textContent =
+    '确定要将 ' + ids.join('、') + ' 等 ' + ids.length + ' 个租户的数据重置为模板状态吗？';
+  showModal('resetTenantDataConfirmModal');
+}
+
+async function doSubmitResetTenantData() {
+  var ids = getSelectedIds();
+  if (ids.length === 0) {
+    toast('请先勾选要操作的租户', 'error');
+    return;
+  }
+  var btn = document.getElementById('btnResetTenantDataConfirmOk');
+  setButtonLoading(btn, true, '重置中...');
+  try {
+    var data = await apiFetch('/reset-tenant-data', {
+      method: 'POST',
+      body: JSON.stringify({ tenant_ids: ids }),
+    });
+    if (data && data.ok) {
+      var results = data.results || [];
+      var ok = results.filter(function(r) { return r.ok; }).length;
+      var fail = results.filter(function(r) { return !r.ok; }).length;
+      var msg = '重置完成: ' + ok + ' 成功';
+      if (fail > 0) msg += ', ' + fail + ' 失败';
+      toast(msg, fail === 0 ? 'success' : 'error');
+      closeModal('resetTenantDataConfirmModal');
+      setTimeout(loadTenants, 500);
+    } else if (data) {
+      toast(data.message || '重置失败', 'error');
     }
   } finally {
     setButtonLoading(btn, false);

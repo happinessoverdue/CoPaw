@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import time
 from pathlib import Path
 import secrets as _secrets
@@ -19,7 +20,7 @@ from datetime import datetime
 from urllib.parse import quote, urlparse
 
 import aiofiles
-from fastapi import FastAPI, Form, Request, Response
+from fastapi import FastAPI, Form, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -515,7 +516,11 @@ async def api_update_tenant(user_id: str, request: Request):
 
 
 @app.delete("/admin/api/tenants/{user_id}")
-async def api_delete_tenant(user_id: str, request: Request):
+async def api_delete_tenant(
+    user_id: str,
+    request: Request,
+    delete_data_dir: bool = Query(False, description="是否同时删除租户挂载的数据目录"),
+):
     denied = _require_admin(request)
     if denied:
         return denied
@@ -526,6 +531,14 @@ async def api_delete_tenant(user_id: str, request: Request):
 
     ok, msg = tenant_db.delete_tenant(user_id)
     if ok:
+        if delete_data_dir:
+            data_path = TENANTS_ROOT / user_id  # 容器内挂载点，宿主机 TENANTS_DATA_BASE_DIR 挂载到 /app/tenants
+            try:
+                if data_path.exists():
+                    shutil.rmtree(data_path, ignore_errors=True)
+                    return {"ok": True, "message": f"租户 '{user_id}' 已删除（容器与数据目录已清理）"}
+            except OSError as e:
+                logger.warning("Failed to remove tenant data dir %s: %s", data_path, e)
         return {"ok": True, "message": f"租户 '{user_id}' 已删除（容器已清理）"}
     return JSONResponse({"ok": False, "message": msg}, status_code=400)
 
@@ -563,13 +576,14 @@ async def api_import_tenants(request: Request):
 
 @app.post("/admin/api/tenants/batch-delete")
 async def api_batch_delete_tenants(request: Request):
-    """批量删除租户：停止并删除容器，从数据库删除租户记录。"""
+    """批量删除租户：停止并删除容器，从数据库删除租户记录；可选删除数据目录。"""
     denied = _require_admin(request)
     if denied:
         return denied
 
     body = await request.json()
     user_ids = body.get("user_ids", [])
+    delete_data_dir = body.get("delete_data_dir", False)
     if not user_ids:
         return JSONResponse({"ok": False, "message": "user_ids 不能为空"}, status_code=400)
 
@@ -580,6 +594,13 @@ async def api_batch_delete_tenants(request: Request):
         dm.remove_container(container_name)
         ok, msg = tenant_db.delete_tenant(uid)
         results.append({"user_id": uid, "ok": ok, "message": msg})
+        if ok and delete_data_dir:
+            data_path = TENANTS_ROOT / uid  # 容器内挂载点，宿主机 TENANTS_DATA_BASE_DIR 挂载到 /app/tenants
+            try:
+                if data_path.exists():
+                    shutil.rmtree(data_path, ignore_errors=True)
+            except OSError as e:
+                logger.warning("Failed to remove tenant data dir %s: %s", data_path, e)
 
     ok_count = sum(1 for r in results if r["ok"])
     fail_count = len(results) - ok_count
@@ -1004,6 +1025,95 @@ async def api_distribute(request: Request):
             "fail_count": fail_count,
             "message": err_msg or f"已分发 {ok_count} 项",
         })
+
+    return {"ok": True, "results": results}
+
+
+def _reset_tenant_data(user_id: str) -> tuple[bool, str]:
+    """重置租户数据：停止容器 → 删除租户目录下所有子项 → 从模板拷贝 → 若原在运行则启动。
+    返回 (ok, message)。"""
+    container_name = f"{INSTANCE_PREFIX}{user_id}"
+    tenant_dir = TENANTS_ROOT / user_id
+    tenant_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. 若容器运行中则先停止，并记录以便后续启动
+    was_running = dm.get_container_runtime_config(container_name) is not None
+    if was_running:
+        ok_stop, msg_stop = dm.stop_container(container_name)
+        if not ok_stop:
+            return False, f"停止容器失败: {msg_stop}"
+
+    # 2. 删除租户目录下所有子项（保留租户目录本身）
+    # 使用 rm -rf 而非 shutil.rmtree，避免租户容器创建的文件因权限/属主导致 Python 删除失败
+    try:
+        for item in list(tenant_dir.iterdir()):
+            subprocess.run(["rm", "-rf", str(item)], check=True)
+    except subprocess.CalledProcessError as e:
+        logger.warning("Reset tenant %s: failed to clear dir (rm -rf): %s", user_id, e)
+        return False, f"清空租户目录失败: {e}"
+
+    # 3. 从模板目录拷贝所有内容到租户目录
+    if not TEMPLATES_ROOT.exists():
+        return False, f"模板目录不存在: {TEMPLATES_ROOT}"
+    copy_errors = []
+    for item in TEMPLATES_ROOT.iterdir():
+        if item.name in _IGNORED_TEMPLATE_NAMES:
+            continue
+        dst = tenant_dir / item.name
+        try:
+            if item.is_dir():
+                shutil.copytree(item, dst, dirs_exist_ok=True, copy_function=shutil.copy)
+            else:
+                shutil.copy(item, dst)
+        except Exception as e:
+            copy_errors.append(f"{item.name}: {e}")
+            logger.warning("Reset tenant %s: copy %s failed: %s", user_id, item.name, e)
+    if copy_errors:
+        return False, "拷贝模板失败: " + "; ".join(copy_errors)
+
+    # 4. 若原在运行则启动容器
+    if was_running:
+        tenant = tenant_db.get_tenant(user_id)
+        if not tenant:
+            return False, f"租户 '{user_id}' 不存在"
+        env = {"COPAW_PORT": str(TENANT_INTERNAL_PORT)}
+        if tenant.get("env"):
+            env.update(tenant["env"])
+        extra_mounts = tenant.get("extra_mounts") or []
+        ok_start, msg_start = dm.create_and_start_container(
+            container_name=container_name, image=TENANT_IMAGE,
+            data_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working", port=TENANT_INTERNAL_PORT,
+            network=DOCKER_NETWORK, env=env, extra_volumes=extra_mounts,
+            secret_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working.secret",
+        )
+        if not ok_start:
+            return False, f"数据已重置，但启动容器失败: {msg_start}"
+
+    return True, "重置完成，数据已恢复为模板状态"
+
+
+@app.post("/admin/api/reset-tenant-data")
+async def api_reset_tenant_data(request: Request):
+    """批量重置租户数据：停止 → 清空租户目录 → 从模板拷贝 → 启动（若原在运行）。"""
+    denied = _require_admin(request)
+    if denied:
+        return denied
+
+    body = await request.json()
+    tenant_ids = body.get("tenant_ids", [])
+
+    if not tenant_ids:
+        return JSONResponse({"ok": False, "message": "tenant_ids 不能为空"}, status_code=400)
+
+    all_tenants = {t["user_id"]: t for t in tenant_db.get_all_tenants()}
+    for uid in tenant_ids:
+        if uid not in all_tenants:
+            return JSONResponse({"ok": False, "message": f"租户 '{uid}' 不存在"}, status_code=400)
+
+    results = []
+    for uid in tenant_ids:
+        ok, msg = _reset_tenant_data(uid)
+        results.append({"user_id": uid, "ok": ok, "message": msg})
 
     return {"ok": True, "results": results}
 

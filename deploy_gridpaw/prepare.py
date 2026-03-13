@@ -503,7 +503,7 @@ def print_help() -> None:
     print("  在有网机器上:")
     print("    1. python prepare.py build      # 构建镜像")
     print("    2. python prepare.py export     # 导出到 images/*.tar")
-    print("    3. 将整个 deploy_tenant 目录拷贝到离线服务器")
+    print("    3. 将整个 deploy_gridpaw 目录拷贝到离线服务器")
     print()
     print("  在离线服务器上:")
     print("    4. python prepare.py import     # 导入镜像")

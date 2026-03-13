@@ -39,7 +39,7 @@ RUN pip install --no-cache-dir .
 RUN copaw init --defaults --accept-security
 
 # Custom entrypoint: init working dir on first run when bind-mounted empty.
-COPY deploy_tenant/entrypoint.sh /entrypoint.sh
+COPY deploy_gridpaw/entrypoint.sh /entrypoint.sh
 RUN chmod 755 /entrypoint.sh
 
 EXPOSE 8088

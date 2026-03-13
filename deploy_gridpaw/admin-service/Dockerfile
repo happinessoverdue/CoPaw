@@ -1,5 +1,5 @@
-# Build context: deploy_tenant/ (parent of admin-service)
-# So COPY paths are relative to deploy_tenant/
+# Build context: deploy_gridpaw/ (parent of admin-service)
+# So COPY paths are relative to deploy_gridpaw/
 
 FROM python:3.12-slim
 

@@ -492,7 +492,7 @@ print_help() {
     echo "  在有网机器上:"
     echo "    1. ./prepare.sh build      # 构建镜像"
     echo "    2. ./prepare.sh export     # 导出到 images/<架构>/*.tar"
-    echo "    3. 将整个 deploy_tenant 目录拷贝到离线服务器"
+    echo "    3. 将整个 deploy_gridpaw 目录拷贝到离线服务器"
     echo
     echo "  在离线服务器上（需与本机同架构）:"
     echo "    4. ./prepare.sh import     # 导入镜像（默认 images/<架构>/）"
