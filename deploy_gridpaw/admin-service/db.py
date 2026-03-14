@@ -56,7 +56,7 @@ class TenantDB:
     - instance_prefix: 租户容器名前缀（如 gridpaw-instance-）
     - tenants_data_base_dir: 宿主机上租户数据根目录
 
-    构造时自动完成建表。
+    构造时自动完成建表与迁移。
     """
 
     # ------------------------------------------------------------------
@@ -72,6 +72,8 @@ class TenantDB:
             default_mounts TEXT NOT NULL DEFAULT '[]',
             env            TEXT NOT NULL DEFAULT '{}',
             extra_mounts   TEXT NOT NULL DEFAULT '[]',
+            is_meta        INTEGER NOT NULL DEFAULT 0,
+            tenant_group   TEXT NOT NULL DEFAULT '通用',
             created_at     TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
         )
@@ -79,16 +81,18 @@ class TenantDB:
 
     _SQL_FIELDS = (
         "user_id, user_name, password, container_name, default_mounts, "
-        "env, extra_mounts, created_at, updated_at"
+        "env, extra_mounts, is_meta, tenant_group, created_at, updated_at"
     )
 
-    _SQL_SELECT_ALL = f"SELECT {_SQL_FIELDS} FROM tenants ORDER BY created_at"
+    _SQL_SELECT_ALL = f"SELECT {_SQL_FIELDS} FROM tenants ORDER BY is_meta DESC, created_at"
     _SQL_SELECT_ONE = f"SELECT {_SQL_FIELDS} FROM tenants WHERE user_id = ?"
+    _SQL_SELECT_META = f"SELECT {_SQL_FIELDS} FROM tenants WHERE is_meta = 1 ORDER BY tenant_group, created_at"
 
     _SQL_INSERT = (
         "INSERT INTO tenants "
-        "(user_id, user_name, password, container_name, default_mounts, env, extra_mounts, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "(user_id, user_name, password, container_name, default_mounts, "
+        "env, extra_mounts, is_meta, tenant_group, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
 
     _SQL_DELETE = "DELETE FROM tenants WHERE user_id = ?"
@@ -136,6 +140,8 @@ class TenantDB:
             d["env"] = {}
         d["default_mounts"] = _parse_json_list(d.get("default_mounts"))
         d["extra_mounts"] = _parse_json_list(d.get("extra_mounts"))
+        d["is_meta"] = bool(d.get("is_meta", 0))
+        d["tenant_group"] = d.get("tenant_group") or "通用"
         return d
 
     def get_all_tenants(self) -> list[dict]:
@@ -148,11 +154,25 @@ class TenantDB:
         row = conn.execute(self._SQL_SELECT_ONE, (user_id,)).fetchone()
         return self._row_to_dict(row) if row is not None else None
 
+    def get_meta_tenants(self) -> list[dict]:
+        """返回所有元租户，按 tenant_group 和 created_at 排序。"""
+        conn = self._get_conn()
+        rows = conn.execute(self._SQL_SELECT_META).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def get_groups(self) -> list[str]:
+        """返回去重的租户组名列表。"""
+        conn = self._get_conn()
+        rows = conn.execute("SELECT DISTINCT tenant_group FROM tenants ORDER BY tenant_group").fetchall()
+        return [r["tenant_group"] for r in rows]
+
     def add_tenant(self, user_id: str, user_name: str, password: str,
                    env: Optional[dict] = None,
                    extra_mounts: Optional[list] = None,
                    container_name: Optional[str] = None,
-                   default_mounts: Optional[list] = None) -> tuple[bool, str]:
+                   default_mounts: Optional[list] = None,
+                   is_meta: bool = False,
+                   tenant_group: Optional[str] = None) -> tuple[bool, str]:
         """Add a tenant. Returns (success, message).
 
         container_name 和 default_mounts 若不传入，由实例根据 instance_prefix 和
@@ -180,7 +200,10 @@ class TenantDB:
                 self._SQL_INSERT,
                 (uid, user_name.strip(), password, cnt,
                  json.dumps(dm_list), json.dumps(env or {}),
-                 json.dumps(extra_mounts or []), now, now),
+                 json.dumps(extra_mounts or []),
+                 1 if is_meta else 0,
+                 (tenant_group or "通用").strip(),
+                 now, now),
             )
             conn.commit()
             return True, "ok"
@@ -189,7 +212,9 @@ class TenantDB:
 
     def update_tenant(self, user_id: str, user_name: Optional[str] = None,
                       password: Optional[str] = None, env: Optional[dict] = None,
-                      extra_mounts: Optional[list] = None) -> tuple[bool, str]:
+                      extra_mounts: Optional[list] = None,
+                      is_meta: Optional[bool] = None,
+                      tenant_group: Optional[str] = None) -> tuple[bool, str]:
         """Update a tenant. Only non-None fields are updated. Returns (success, message)."""
         if self.get_tenant(user_id) is None:
             return False, f"租户 '{user_id}' 不存在"
@@ -212,6 +237,12 @@ class TenantDB:
         if extra_mounts is not None:
             sets.append("extra_mounts = ?")
             params.append(json.dumps(extra_mounts))
+        if is_meta is not None:
+            sets.append("is_meta = ?")
+            params.append(1 if is_meta else 0)
+        if tenant_group is not None:
+            sets.append("tenant_group = ?")
+            params.append(tenant_group.strip())
 
         if not sets:
             return True, "无变更"
@@ -226,7 +257,13 @@ class TenantDB:
         return True, "ok"
 
     def delete_tenant(self, user_id: str) -> tuple[bool, str]:
-        """Delete a tenant. Returns (success, message)."""
+        """Delete a tenant. Meta tenants must be demoted first."""
+        tenant = self.get_tenant(user_id)
+        if tenant is None:
+            return False, f"租户 '{user_id}' 不存在"
+        if tenant.get("is_meta"):
+            return False, f"元租户 '{user_id}' 不可直接删除，请先取消元租户身份"
+
         conn = self._get_conn()
         cursor = conn.execute(self._SQL_DELETE, (user_id,))
         conn.commit()
@@ -237,7 +274,8 @@ class TenantDB:
     def import_tenants(self, tenant_list: list[dict]) -> tuple[int, list[str], list[str]]:
         """Bulk import tenants. Returns (success_count, error_messages, imported_user_ids).
 
-        Each item should have: user_id, user_name, password, and optionally env.
+        Each item should have: user_id, user_name, password, and optionally env,
+        extra_mounts, is_meta, tenant_group.
         Existing user_ids are skipped with an error message.
         container_name 和 default_mounts 由实例自动计算，无需在数据中提供。
         """
@@ -253,6 +291,8 @@ class TenantDB:
                 uid, t.get("user_name", ""), t.get("password", ""),
                 env=t.get("env"),
                 extra_mounts=t.get("extra_mounts"),
+                is_meta=bool(t.get("is_meta", False)),
+                tenant_group=t.get("tenant_group"),
             )
             if ok:
                 success += 1

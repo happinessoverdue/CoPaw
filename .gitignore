@@ -94,3 +94,6 @@ CLAUDE.md
 
 # 定制文档（不跟踪）
 dev_docs/
+
+# deploy_gridpaw/gridpaw_data 部署模板：目录下所有内容均纳入跟踪
+!deploy_gridpaw/gridpaw_data/**

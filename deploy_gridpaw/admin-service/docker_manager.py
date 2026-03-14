@@ -15,7 +15,6 @@ logger = logging.getLogger("gridpaw-admin.docker")
 
 _client: docker.DockerClient | None = None
 
-
 def init_client() -> None:
     global _client
     try:

@@ -11,43 +11,39 @@ name: gridpaw-multi-tenant-service
 # 网络定义：nginx、admin、租户容器均需加入此网络以互通
 networks:
   gridpaw-net:
-    driver: bridge  # 桥接网络，同一主机内容器可互相访问
+    driver: bridge
 
 services:
   # 网关服务：唯一对外端口，认证代理 + 动态路由
   nginx:
-    image: gridpaw-nginx:latest  # 镜像名，需先 build
+    image: gridpaw-nginx:latest
     build:
-      context: ./nginx           # 构建上下文目录
-      dockerfile: Dockerfile     # Dockerfile 路径（相对于 context）
+      context: ./nginx
+      dockerfile: Dockerfile
     ports:
-      - "${NGINX_PORT:-8087}:80"  # 宿主机端口:容器端口（nginx在容器内监听80端口,不可更改,nginx.conf中写死了监听80端口）
+      - "${NGINX_PORT:-8087}:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro  # Nginx 配置文件，只读
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
-      - gridpaw-net  # 加入网络，与 admin 互通
+      - gridpaw-net
     depends_on:
-      - admin        # 启动前等待 admin 就绪
-    restart: unless-stopped  # 退出时自动重启（除非手动停止）
+      - admin
+    restart: unless-stopped
 
   # 管理服务：认证 + 租户管理 API + Web 面板 + 共享文件服务
   admin:
-    image: gridpaw-admin:latest  # 镜像名，需先 build
+    image: gridpaw-admin:latest
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # 挂载 Docker 套接字，用于创建/管理租户容器
-      - ./admin-service:/app/admin-service        # 管理前后端、登录页等静态资源
-      - ${GRIDPAW_ADMIN_DATA_DIR:-/root/var/gridpaw/admin_data}:/app/data:rw  # Admin服务的数据目录，里面存放数据库和模版目录
-      - ${TENANTS_DATA_BASE_DIR:-/root/var/gridpaw/tenants_data}:/app/tenants:rw           # 所有租户的数据根目录，分发时写入，在该目录下每个租户一个子目录，子目录名即为租户id(称之为租户数据目录，租户数据目录下会有working和working.secret两个子目录，分别存放智能体工作目录和敏感配置目录)
-      - ${SHARED_FILES_DATA_DIR:-/root/var/gridpaw/shared_files}:/app/shared_files:rw   # 共享文件服务的文件存放目录，用于共享文件服务读写共享文件
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./admin-service:/app/admin-service
+      - ${GRIDPAW_DATA:-/var/gridpaw}:/app/gridpaw_data:rw
     environment:
-      - DOCKER_NETWORK=gridpaw-multi-tenant-service_gridpaw-net     # 租户容器需加入的网络（由项目名+网络名决定）
-      - TENANT_IMAGE=${TENANT_IMAGE:-gridpaw-tenant:latest}          # 租户容器镜像名
-      - INSTANCE_PREFIX=${INSTANCE_PREFIX:-gridpaw-instance-}        # 租户容器名前缀
-      - GRIDPAW_ADMIN_DATA_DIR=${GRIDPAW_ADMIN_DATA_DIR:-/root/var/gridpaw/admin_data}     # Admin 数据宿主机路径
-      - TENANTS_DATA_BASE_DIR=${TENANTS_DATA_BASE_DIR:-/root/var/gridpaw/tenants_data}    # 租户数据宿主机路径
-      - SHARED_FILES_DATA_DIR=${SHARED_FILES_DATA_DIR:-/root/var/gridpaw/shared_files}     # 共享文件服务文件存放目录宿主机路径
-      - FILE_SERVICE_BASE_URL=${FILE_SERVICE_BASE_URL:-http://127.0.0.1}  # 共享文件对外的IP地址，无需填写端口。因为共享文件服务与admin服务是同一个fastapi应用实现的，一起被nginx代理做了统一的对外代理。
-      - NGINX_PORT=${NGINX_PORT:-8087}               # Nginx 端口，用于拼接共享文件下载 URL
+      - DOCKER_NETWORK=gridpaw-multi-tenant-service_gridpaw-net
+      - TENANT_IMAGE=${TENANT_IMAGE:-gridpaw-tenant:latest}
+      - INSTANCE_PREFIX=${INSTANCE_PREFIX:-gridpaw-instance-}
+      - GRIDPAW_DATA=${GRIDPAW_DATA:-/var/gridpaw}
+      - FILE_SERVICE_BASE_URL=${FILE_SERVICE_BASE_URL:-http://127.0.0.1}
+      - NGINX_PORT=${NGINX_PORT:-8087}
     networks:
-      - gridpaw-net  # 加入网络，与 nginx、租户容器互通
-    restart: unless-stopped  # 退出时自动重启
+      - gridpaw-net
+    restart: unless-stopped

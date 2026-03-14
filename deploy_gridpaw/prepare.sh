@@ -358,15 +358,11 @@ cmd_up() {
         done
     fi
     if [ "$need_admin" -eq 1 ]; then
-        local admin_dir tenants_dir shared_dir
-        admin_dir="$(_read_env GRIDPAW_ADMIN_DATA_DIR)"
-        admin_dir="${admin_dir:-/root/var/gridpaw/admin_data}"
-        tenants_dir="$(_read_env TENANTS_DATA_BASE_DIR)"
-        tenants_dir="${tenants_dir:-/root/var/gridpaw/tenants_data}"
-        shared_dir="$(_read_env SHARED_FILES_DATA_DIR)"
-        shared_dir="${shared_dir:-/root/var/gridpaw/shared_files}"
-        echo "==> Ensuring host data dirs exist..."
-        mkdir -p "${admin_dir}" "${tenants_dir}" "${shared_dir}"
+        local gridpaw_data
+        gridpaw_data="$(_read_env GRIDPAW_DATA)"
+        gridpaw_data="${gridpaw_data:-/var/gridpaw}"
+        echo "==> Ensuring host data dirs exist under ${gridpaw_data} ..."
+        mkdir -p "${gridpaw_data}/admin_data" "${gridpaw_data}/tenants_data" "${gridpaw_data}/shared_files"
     fi
     if [ ${#svc[@]} -gt 0 ]; then
         echo "==> Starting: ${svc[*]} ..."

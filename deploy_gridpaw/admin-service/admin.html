@@ -33,7 +33,7 @@
   .topbar-right a:hover { background: #ef4444; }
 
   /* ---- Main content ---- */
-  .main { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+  .main { width: 80%; max-width: 1600px; margin: 0 auto; padding: 1.5rem; }
 
   /* ---- Toolbar ---- */
   .toolbar {
@@ -65,6 +65,8 @@
   .btn-purple:hover { background: #7c3aed; border-color: #7c3aed; }
   .btn-neutral { background: #334155; border-color: #475569; color: #e2e8f0 !important; }
   .btn-neutral:hover { background: #475569; border-color: #64748b; }
+  .btn-yellow { background: #a16207; border-color: #a16207; color: #fff; }
+  .btn-yellow:hover { background: #ca8a04; border-color: #ca8a04; }
   .btn-sm { padding: 0.3125rem 0.625rem; font-size: 0.75rem; }
   .btn-loading { pointer-events: none; }
   .btn-spinner {
@@ -86,7 +88,7 @@
   table { width: 100%; border-collapse: collapse; }
   thead th {
     padding: 0.625rem 0.75rem; font-size: 0.75rem; font-weight: 600;
-    text-align: center; color: #94a3b8; background: #1e293b;
+    text-align: center; color: #cbd5e1; background: #1e293b;
     border-bottom: 1px solid #334155; text-transform: uppercase; letter-spacing: 0.025em;
   }
   tbody td {
@@ -102,7 +104,7 @@
   }
   .status-running { background: rgba(34,197,94,0.15); color: #4ade80; }
   .status-exited { background: rgba(239,68,68,0.15); color: #f87171; }
-  .status-not_found { background: rgba(148,163,184,0.15); color: #94a3b8; }
+  .status-not_found { background: rgba(148,163,184,0.15); color: #cbd5e1; }
   .status-created, .status-paused, .status-restarting { background: rgba(250,204,21,0.15); color: #facc15; }
   .actions { display: flex; gap: 0; flex-wrap: wrap; align-items: center; justify-content: flex-start; }
   .actions .btn-group { display: inline-flex; gap: 0.25rem; align-items: center; }
@@ -111,7 +113,7 @@
     flex-shrink: 0; align-self: stretch; min-height: 1.25em; border-radius: 1px;
   }
   .empty-row td { text-align: center; color: #64748b; padding: 2rem; }
-  .running-for { font-size: 0.75rem; color: #64748b; }
+  .running-for { font-size: 0.75rem; color: #cbd5e1; }
 
   /* 容器状态列：点击表头展开下拉 */
   .status-col-header {
@@ -142,8 +144,13 @@
   .status-col-dropdown .drop-item:hover { background: rgba(100,116,139,0.3); }
   .status-col-dropdown .drop-item.active { color: #3b82f6; background: rgba(59,130,246,0.1); }
 
-  .edit-col { width: 1%; white-space: nowrap; }
-  .status-col-th { position: relative; }
+  .edit-col { width: 1%; min-width: 300px; white-space: nowrap; }
+  .edit-col .btn-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .status-col-th, .group-col-th { position: relative; }
 
   /* ---- Modal ---- */
   .modal-overlay {
@@ -198,7 +205,9 @@
   .form-group.info-group .info-row ul { margin: 0; padding-left: 1.25rem; color: #94a3b8; font-size: 0.8125rem; }
   .form-group input:disabled, .form-group input[readonly] { color: #94a3b8 !important; }
   .form-group.info-group .info-mounts { flex: 1; min-width: 0; }
-  .form-group .label-with-status { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+  .form-group .label-with-status { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  /* 租户新增/编辑弹窗加宽 */
+  .tenant-modal .modal { max-width: 960px; }
   .instance-status { display: inline-flex; align-items: center; gap: 0.375rem; font-size: 0.8125rem; }
   .instance-status-running { color: #4ade80; }
   .instance-status-stopped { color: #f87171; }
@@ -248,7 +257,7 @@
 
   /* ---- Log modal ---- */
   .log-modal .modal {
-    max-width: 90vw; width: 800px; max-height: 85vh; display: flex; flex-direction: column;
+    max-width: 95vw; width: 1200px; max-height: 85vh; display: flex; flex-direction: column;
   }
   .log-modal .log-header {
     display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
@@ -281,6 +290,55 @@
   /* ---- Misc ---- */
   .checkbox-cell { width: 2.5rem; text-align: center; }
   .checkbox-cell input { accent-color: #3b82f6; cursor: pointer; }
+
+  /* ---- Meta badge ---- */
+  .meta-badge {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.125rem 0.375rem; border-radius: 4px; font-size: 0.6875rem; font-weight: 600;
+    background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3);
+    vertical-align: middle; margin-left: 0.375rem;
+  }
+  .group-tag {
+    display: inline-block; padding: 0.125rem 0.375rem; border-radius: 4px;
+    font-size: 0.75rem; background: rgba(100,116,139,0.2); color: #cbd5e1;
+  }
+  tbody tr.meta-row { background: rgba(255, 230, 0, 0.06); }
+  tbody tr.meta-row:hover { background: rgba(255, 230, 0, 0.10); }
+
+  /* ---- Source selector (distribute/reset/init) ---- */
+  .source-option-meta { color: #fbbf24; font-weight: 600; }
+  .source-picker-wrap { position: relative; }
+  .source-picker-trigger {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; padding: 0.625rem 0.75rem; font-size: 0.875rem; color: #f1f5f9;
+    background: rgba(15,23,42,0.6); border: 1px solid rgba(100,116,139,0.4);
+    border-radius: 6px; cursor: pointer; transition: border-color 0.2s;
+  }
+  .source-picker-trigger:hover { border-color: rgba(100,116,139,0.6); }
+  .source-picker-trigger:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+  .source-picker-arrow { font-size: 0.625rem; color: #94a3b8; }
+  .source-picker-dropdown {
+    display: none; position: absolute; top: 100%; left: 0; right: 0; margin-top: 0.25rem;
+    max-height: 240px; overflow-y: auto;
+    background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.4); z-index: 100;
+  }
+  .source-picker-dropdown.open { display: block; }
+  .source-picker-optgroup { padding: 0.25rem 0; }
+  .source-picker-optgroup-label { padding: 0.25rem 0.75rem; font-size: 0.6875rem; color: #64748b; }
+  .source-picker-option {
+    display: block; width: 100%; padding: 0.5rem 0.75rem; font-size: 0.875rem;
+    text-align: left; background: none; border: none; color: #e2e8f0;
+    cursor: pointer; transition: background 0.1s;
+  }
+  .source-picker-option:hover { background: rgba(100,116,139,0.3); }
+  .source-select {
+    width: 100%; padding: 0.625rem 0.75rem; font-size: 0.875rem; color: #f1f5f9;
+    background: rgba(15,23,42,0.6); border: 1px solid rgba(100,116,139,0.4);
+    border-radius: 6px; outline: none; cursor: pointer;
+  }
+  .source-select:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+  .source-select option { background: #1e293b; color: #e2e8f0; }
 
   /* ---- Distribute tree (jsTree) ---- */
   .dist-tree-wrap {
@@ -375,6 +433,18 @@
           <th class="checkbox-cell"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
           <th>用户 ID</th>
           <th>姓名</th>
+          <th class="group-col-th">
+            <div class="status-col-header" id="groupHeaderTrigger" onclick="toggleGroupDropdown(event)" title="点击筛选">
+              <span>分组</span>
+              <span class="status-drop-arrow">▼</span>
+            </div>
+            <div class="status-col-dropdown" id="groupDropdown" onclick="event.stopPropagation()">
+              <div class="drop-section">
+                <div class="drop-section-title">筛选</div>
+                <div id="groupDropdownItems"></div>
+              </div>
+            </div>
+          </th>
           <th class="edit-col">编辑</th>
           <th class="status-col-th">
             <div class="status-col-header" id="statusHeaderTrigger" onclick="toggleStatusDropdown(event)" title="点击筛选或排序">
@@ -403,7 +473,7 @@
         </tr>
       </thead>
       <tbody id="tenantBody">
-        <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+        <tr class="empty-row"><td colspan="8">加载中...</td></tr>
       </tbody>
     </table>
   </div>
@@ -413,7 +483,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <!-- Add/Edit Modal -->
-<div class="modal-overlay" id="tenantModal">
+<div class="modal-overlay tenant-modal" id="tenantModal">
   <div class="modal">
     <h2 id="modalTitle">新增租户</h2>
     <input type="hidden" id="modalMode" value="add">
@@ -472,12 +542,27 @@
       <textarea id="formEnv" placeholder='{"DASHSCOPE_API_KEY": "sk-xxx"}'></textarea>
       <div class="hint">JSON 格式的键值对，留空则使用默认环境变量</div>
     </div>
-    <div class="form-group form-group-checkbox" id="formInitFromTemplateGroup">
+    <div class="form-group" id="formTenantGroupGroup">
+      <label for="formTenantGroup">租户组</label>
+      <select id="formTenantGroup" class="source-select">
+        <option value="通用">通用</option>
+      </select>
+      <input type="text" id="formTenantGroupCustom" placeholder="输入新组名" class="form-tenant-group-custom" style="display:none; margin-top:0.5rem;">
+      <div class="hint">按业务部门或场景分组，如「通用」「现货市场」「调度大厅」等。选「其他」可输入新组名</div>
+    </div>
+    <div class="form-group form-group-checkbox" id="formIsMetaGroup">
       <label class="form-check-row">
-        <input type="checkbox" id="formInitFromTemplate" checked>
-        <span class="form-check-label">使用智能体模板配置进行初始化</span>
+        <input type="checkbox" id="formIsMeta">
+        <span class="form-check-label">设为元租户</span>
       </label>
-      <div class="hint">创建租户后自动将租户模板目录里的 working 和 working.secret 拷贝到租户目录</div>
+      <div class="hint">元租户可作为分发和初始化的配置来源，不可直接删除</div>
+    </div>
+    <div class="form-group" id="formInitFromGroup">
+      <label for="formInitFrom">初始化来源</label>
+      <select class="source-select" id="formInitFrom">
+        <option value="">不初始化</option>
+      </select>
+      <div class="hint">选择从哪个租户的配置复制初始化新租户（working 和 working.secret）</div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('tenantModal')">取消</button>
@@ -499,12 +584,12 @@
       <textarea id="importText" rows="16"></textarea>
       <div class="hint">JSON 数组，每项需包含 user_id、user_name、password 字段</div>
     </div>
-    <div class="form-group form-group-checkbox">
-      <label class="form-check-row">
-        <input type="checkbox" id="importInitFromTemplate" checked>
-        <span class="form-check-label">使用智能体模板配置进行初始化</span>
-      </label>
-      <div class="hint">创建租户后自动将租户模板目录里的 working 和 working.secret 拷贝到租户目录</div>
+    <div class="form-group">
+      <label for="importInitFrom">初始化来源</label>
+      <select class="source-select" id="importInitFrom">
+        <option value="">不初始化</option>
+      </select>
+      <div class="hint">选择从哪个租户的配置复制初始化导入的租户</div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('importModal')">取消</button>
@@ -519,6 +604,18 @@
     <h2>分发文件到选中租户</h2>
     <div class="form-group">
       <div id="distributeTenantsHint" class="distribute-selected-hint">已选租户: -</div>
+    </div>
+    <div class="form-group">
+      <label for="distributeSource">分发来源</label>
+      <div class="source-picker-wrap" id="distributeSourcePicker">
+        <input type="hidden" id="distributeSource" value="">
+        <div class="source-picker-trigger" onclick="toggleSourcePicker('distributeSource')">
+          <span class="source-picker-label">-- 请选择来源租户 --</span>
+          <span class="source-picker-arrow">▼</span>
+        </div>
+        <div class="source-picker-dropdown" id="distributeSourceList" onclick="event.stopPropagation()"></div>
+      </div>
+      <div class="hint">从该租户的目录中选择要分发的文件</div>
     </div>
     <div class="form-group" id="distributePresetsGroup">
       <label>快捷分发</label>
@@ -581,12 +678,24 @@
   <div class="modal" style="max-width:500px">
     <h2>确认重置租户数据</h2>
     <p id="resetTenantDataConfirmMessage" class="distribute-confirm-msg" style="margin-bottom:1rem"></p>
+    <div class="form-group">
+      <label for="resetSource">重置来源</label>
+      <div class="source-picker-wrap" id="resetSourcePicker">
+        <input type="hidden" id="resetSource" value="">
+        <div class="source-picker-trigger" onclick="toggleSourcePicker('resetSource')">
+          <span class="source-picker-label">-- 请选择来源租户 --</span>
+          <span class="source-picker-arrow">▼</span>
+        </div>
+        <div class="source-picker-dropdown" id="resetSourceList" onclick="event.stopPropagation()"></div>
+      </div>
+      <div class="hint">将选中租户的数据完全替换为来源租户的数据</div>
+    </div>
     <div class="reset-tenant-data-logic-hint">
       <strong>操作流程：</strong>
       <ol style="margin:0.5rem 0 0 1.25rem;padding:0;color:#94a3b8;font-size:0.875rem;line-height:1.6">
         <li>停止运行中的容器</li>
         <li>删除租户目录下所有子项（保留租户目录本身）</li>
-        <li>从模板目录（tenant_template）拷贝所有内容到租户目录</li>
+        <li>从来源租户目录拷贝所有内容到租户目录</li>
         <li>若原在运行则重新启动容器</li>
       </ol>
       <p style="margin:0.75rem 0 0;color:#f87171;font-size:0.875rem">此操作不可恢复，租户现有数据将全部丢失。</p>
@@ -616,6 +725,22 @@
   </div>
 </div>
 
+<!-- Quick Set Group Modal -->
+<div class="modal-overlay" id="quickSetGroupModal">
+  <div class="modal" style="max-width:360px">
+    <h2>设置租户组</h2>
+    <p id="quickSetGroupHint" style="color:#94a3b8;font-size:0.875rem;margin-bottom:1rem"></p>
+    <div class="form-group" style="margin-bottom:1rem">
+      <select id="quickSetGroupSelect" class="source-select"></select>
+      <input type="text" id="quickSetGroupCustom" placeholder="输入新组名" style="display:none;margin-top:0.5rem;width:100%;padding:0.5rem 0.75rem;font-size:0.875rem;background:rgba(15,23,42,0.6);border:1px solid rgba(100,116,139,0.4);border-radius:6px;color:#f1f5f9">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('quickSetGroupModal')">取消</button>
+      <button class="btn btn-primary" id="quickSetGroupBtn" onclick="doQuickSetGroup()">确定</button>
+    </div>
+  </div>
+</div>
+
 <!-- Log Modal -->
 <div class="modal-overlay log-modal" id="logModal" onclick="if(event.target===this)closeLogPanel()">
   <div class="modal" onclick="event.stopPropagation()">
@@ -633,9 +758,12 @@
 const API = '/admin/api';
 let autoRefreshTimer = null;
 let tenantsData = [];
-let instancePrefix = 'gridpaw-instance-';  // 由 /tenants 的 config 覆盖
-let statusFilter = '';   // '' | 'running' | 'exited' | 'not_found'
-let statusSort = 'none'; // 'none' | 'asc' | 'desc'
+let metaTenantsData = [];
+let groupsData = [];
+let instancePrefix = 'gridpaw-instance-';
+let statusFilter = '';
+let statusSort = 'none';
+let groupFilter = '';
 
 // ---- API helpers ----
 
@@ -689,8 +817,163 @@ async function loadTenants() {
   const data = await apiFetch('/tenants');
   if (!data) return;
   tenantsData = data.tenants || [];
-  if (data.config && data.config.instance_prefix) instancePrefix = data.config.instance_prefix;
+  if (data.config) {
+    if (data.config.instance_prefix) instancePrefix = data.config.instance_prefix;
+    if (data.config.groups) groupsData = data.config.groups;
+  }
+  metaTenantsData = tenantsData.filter(t => t.is_meta);
+  updateGroupFilterOptions();
   renderTable();
+}
+
+function updateGroupFilterOptions() {
+  const container = document.getElementById('groupDropdownItems');
+  if (!container) return;
+  let html = '<button type="button" class="drop-item" data-group="" onclick="selectGroupFilter(this)">全部</button>';
+  groupsData.forEach(g => {
+    html += '<button type="button" class="drop-item" data-group="' + esc(g) + '" onclick="selectGroupFilter(this)">' + esc(g) + '</button>';
+  });
+  container.innerHTML = html;
+  updateGroupDropdownActive();
+}
+
+function selectGroupFilter(btn) {
+  groupFilter = btn.getAttribute('data-group') || '';
+  renderTable();
+  updateGroupDropdownActive();
+  closeGroupDropdownOnce();
+}
+
+function toggleGroupDropdown(ev) {
+  ev.stopPropagation();
+  const dd = document.getElementById('groupDropdown');
+  const isOpen = dd.classList.toggle('open');
+  if (isOpen) {
+    updateGroupDropdownActive();
+    document.addEventListener('click', closeGroupDropdownOnce);
+  }
+}
+
+function closeGroupDropdownOnce() {
+  const dd = document.getElementById('groupDropdown');
+  if (dd) dd.classList.remove('open');
+  document.removeEventListener('click', closeGroupDropdownOnce);
+}
+
+function updateGroupDropdownActive() {
+  document.querySelectorAll('#groupDropdown .drop-item').forEach(el => {
+    const g = el.getAttribute('data-group');
+    el.classList.toggle('active', (g || '') === (groupFilter || ''));
+  });
+}
+
+function populateSourceSelect(selectId, includeAll) {
+  const inp = document.getElementById(selectId);
+  const listEl = document.getElementById(selectId + 'List');
+  const wrap = document.getElementById(selectId + 'Picker');
+  const triggerLabel = wrap ? wrap.querySelector('.source-picker-label') : null;
+  if (!inp || !listEl) return;
+  const prev = inp.value || '';
+  const grouped = {};
+  const sources = includeAll ? tenantsData : metaTenantsData;
+  sources.forEach(t => {
+    const g = t.tenant_group || '通用';
+    if (!grouped[g]) grouped[g] = [];
+    grouped[g].push(t);
+  });
+  let html = '';
+  Object.keys(grouped).sort().forEach(g => {
+    html += '<div class="source-picker-optgroup"><div class="source-picker-optgroup-label">' + esc(g) + '</div>';
+    grouped[g].forEach(t => {
+      const metaPart = t.is_meta ? '<span class="source-option-meta">[元]</span> ' : '';
+      const labelHtml = metaPart + esc(t.user_id) + '(' + esc(t.user_name) + ')';
+      const dataLabel = (t.is_meta ? '[元] ' : '') + t.user_id + '(' + t.user_name + ')';
+      html += '<button type="button" class="source-picker-option" data-value="' + esc(t.user_id) + '" data-label="' + esc(dataLabel) + '" onclick="selectSourceOption(this,\'' + selectId.replace(/'/g, "\\'") + '\')">' + labelHtml + '</button>';
+    });
+    html += '</div>';
+  });
+  listEl.innerHTML = html || '<div class="source-picker-optgroup"><div class="source-picker-optgroup-label">无租户</div></div>';
+  listEl.querySelectorAll('.source-picker-option').forEach(btn => {
+    if (btn.getAttribute('data-value') === prev) {
+      if (triggerLabel) triggerLabel.innerHTML = btn.innerHTML;
+    }
+  });
+  if (!prev && triggerLabel) triggerLabel.textContent = '-- 请选择来源租户 --';
+}
+
+function selectSourceOption(btn, selectId) {
+  const inp = document.getElementById(selectId);
+  const wrap = document.getElementById(selectId + 'Picker');
+  const triggerLabel = wrap ? wrap.querySelector('.source-picker-label') : null;
+  const listEl = document.getElementById(selectId + 'List');
+  const val = btn.getAttribute('data-value') || '';
+  if (inp) inp.value = val;
+  if (triggerLabel) triggerLabel.innerHTML = btn.innerHTML;
+  if (listEl) listEl.classList.remove('open');
+  document.removeEventListener('click', window._closeSourcePicker);
+  if (selectId === 'distributeSource') onDistributeSourceChange();
+}
+
+function toggleSourcePicker(selectId) {
+  const listEl = document.getElementById(selectId + 'List');
+  if (!listEl) return;
+  const isOpen = listEl.classList.toggle('open');
+  if (isOpen) {
+    window._closeSourcePicker = function() {
+      listEl.classList.remove('open');
+      document.removeEventListener('click', window._closeSourcePicker);
+    };
+    setTimeout(() => document.addEventListener('click', window._closeSourcePicker), 0);
+  }
+}
+
+function populateInitSourceSelect(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  let html = '<option value="">不初始化</option>';
+  const grouped = {};
+  metaTenantsData.forEach(t => {
+    const g = t.tenant_group || '通用';
+    if (!grouped[g]) grouped[g] = [];
+    grouped[g].push(t);
+  });
+  Object.keys(grouped).sort().forEach(g => {
+    html += '<optgroup label="' + esc(g) + '">';
+    grouped[g].forEach(t => {
+      const label = '从 ' + (t.is_meta ? '[元] ' : '') + t.user_id + '(' + t.user_name + ') 复制';
+      html += '<option value="' + esc(t.user_id) + '">' + esc(label) + '</option>';
+    });
+    html += '</optgroup>';
+  });
+  sel.innerHTML = html;
+}
+
+function populateGroupSelect() {
+  const sel = document.getElementById('formTenantGroup');
+  const customInp = document.getElementById('formTenantGroupCustom');
+  if (!sel) return;
+  const curVal = sel.value;
+  const curCustom = (customInp && customInp.value) || '';
+  const groups = Array.from(new Set(['通用', ...(groupsData || [])])).sort();
+  let html = groups.map(g => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('');
+  html += '<option value="__other__">其他 (输入新组名)</option>';
+  sel.innerHTML = html;
+  if (curVal === '__other__') {
+    sel.value = '__other__';
+    if (customInp) { customInp.style.display = 'block'; customInp.value = curCustom || ''; }
+  } else if (groups.includes(curVal)) {
+    sel.value = curVal;
+    if (customInp) { customInp.style.display = 'none'; customInp.value = ''; }
+  } else {
+    sel.value = '__other__';
+    if (customInp) { customInp.style.display = 'block'; customInp.value = curVal || curCustom || ''; }
+  }
+  if (!sel.onchange) {
+    sel.onchange = function() {
+      const c = document.getElementById('formTenantGroupCustom');
+      if (c) c.style.display = sel.value === '__other__' ? 'block' : 'none';
+    };
+  }
 }
 
 function statusBadge(status) {
@@ -705,6 +988,9 @@ function statusBadge(status) {
 
 function getFilteredAndSortedTenants() {
   let list = tenantsData.slice();
+  if (groupFilter) {
+    list = list.filter(t => (t.tenant_group || '通用') === groupFilter);
+  }
   if (statusFilter) {
     list = list.filter(t => {
       const st = (t.container || {}).status || 'not_found';
@@ -769,8 +1055,8 @@ function renderTable() {
   if (list.length === 0) {
     const msg = tenantsData.length === 0
       ? '暂无租户，点击「+ 新增租户」开始'
-      : statusFilter ? '无匹配租户，可切换筛选条件' : '';
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">' + msg + '</td></tr>';
+      : (statusFilter || groupFilter) ? '无匹配租户，可切换筛选条件' : '';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">' + msg + '</td></tr>';
     updateBatchButtonsState();
     return;
   }
@@ -778,20 +1064,29 @@ function renderTable() {
     const cs = t.container || {};
     const st = cs.status || 'not_found';
     const isRunning = st === 'running';
-    const hasContainer = st !== 'not_found';  // 容器已存在(含已停止)
+    const hasContainer = st !== 'not_found';
+    const isMeta = t.is_meta;
+    const metaBadge = isMeta ? '<span class="meta-badge">元</span>' : '';
     const grp1 = isRunning
       ? `<button class="btn btn-sm btn-danger" onclick="confirmContainerAction(this,'${t.user_id}','stop')">停止</button>
          <button class="btn btn-sm btn-purple" onclick="confirmContainerAction(this,'${t.user_id}','restart')">重启</button>`
       : `<button class="btn btn-sm btn-success" onclick="containerAction(this,'${t.user_id}','start')">启动</button>`;
     const grp2 = hasContainer ? `<button class="btn btn-sm btn-purple" onclick="confirmContainerAction(this,'${t.user_id}','recreate')">重建</button>` : '';
-    const grp3 = !isRunning
-      ? `${hasContainer ? `<button class="btn btn-sm btn-danger" onclick="confirmRemoveContainer('${t.user_id}')">删除容器</button>` : ''}
-         <button class="btn btn-sm btn-danger" onclick="confirmDelete('${t.user_id}')">删除租户</button>`
-      : '';
+    let grp3 = '';
+    if (!isRunning) {
+      grp3 = (hasContainer ? `<button class="btn btn-sm btn-danger" onclick="confirmRemoveContainer('${t.user_id}')">删除容器</button>` : '');
+      if (!isMeta) {
+        grp3 += `<button class="btn btn-sm btn-danger" onclick="confirmDelete('${t.user_id}')">删除租户</button>`;
+      }
+    }
     const grp4 = isRunning
       ? `<button class="btn btn-sm btn-blue" onclick="showLogs('${t.user_id}')">日志</button>` : '';
     const grp5 = isRunning
       ? `<button class="btn btn-sm btn-success" onclick="openGridPaw('${t.user_id}')" title="在新标签页打开该租户的 GridPaw 页面">进入页面 →</button>` : '';
+    const metaToggle = isMeta
+      ? `<button class="btn btn-sm btn-yellow" onclick="confirmToggleMeta('${t.user_id}', false)" title="取消后可作为普通租户删除">取消元租户</button>`
+      : `<button class="btn btn-sm btn-blue" onclick="confirmToggleMeta('${t.user_id}', true)" title="设为元租户后可用于分发来源、新建初始化">设为元租户</button>`;
+    const groupBtn = `<button class="btn btn-sm btn-blue" onclick="showQuickSetGroupModal('${t.user_id}')" title="快捷设置租户所属组">设分组</button>`;
     const parts = [
       `<span class="btn-group">${grp1}</span>`,
       grp2 ? `<span class="btn-group">${grp2}</span>` : '',
@@ -799,11 +1094,12 @@ function renderTable() {
       grp4 ? `<span class="btn-group">${grp4}</span>` : '',
       grp5 ? `<span class="btn-group">${grp5}</span>` : '',
     ].filter(Boolean);
-    return `<tr>
+    return `<tr class="${isMeta ? 'meta-row' : ''}">
       <td class="checkbox-cell"><input type="checkbox" class="tenant-cb" value="${t.user_id}"></td>
-      <td><strong>${esc(t.user_id)}</strong></td>
+      <td><strong>${esc(t.user_id)}</strong>${metaBadge}</td>
       <td>${esc(t.user_name)}</td>
-      <td class="edit-col"><button class="btn btn-sm btn-blue" onclick="showEditModal('${t.user_id}')">编辑</button></td>
+      <td><span class="group-tag">${esc(t.tenant_group || '通用')}</span></td>
+      <td class="edit-col"><span class="btn-group"><button class="btn btn-sm btn-blue" onclick="showEditModal('${t.user_id}')">编辑</button>${metaToggle}${groupBtn}</span></td>
       <td>${statusBadge(st)}</td>
       <td><span class="running-for">${cs.running_for || '-'}</span></td>
       <td class="actions">${parts.map(p => p).join('<span class="actions-sep"></span>')}</td>
@@ -860,7 +1156,7 @@ function getSelectedIds() {
 
 function updateBatchButtonsState() {
   const n = getSelectedIds().length;
-  ['btnBatchStart', 'btnBatchStop', 'btnBatchRestart', 'btnBatchRecreate', 'btnBatchRemoveContainer', 'btnBatchDeleteTenant', 'btnDistribute'].forEach(id => {
+  ['btnBatchStart', 'btnBatchStop', 'btnBatchRestart', 'btnBatchRecreate', 'btnBatchRemoveContainer', 'btnBatchDeleteTenant', 'btnDistribute', 'btnResetTenantData'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = n === 0;
   });
@@ -885,8 +1181,15 @@ function showAddModal() {
   document.getElementById('formInstanceInfoGroup').style.display = 'none';
   document.getElementById('formInstanceConfigGroup').style.display = 'none';
   document.getElementById('formMountsGroupAdd').style.display = 'block';
-  document.getElementById('formInitFromTemplateGroup').style.display = 'block';
-  document.getElementById('formInitFromTemplate').checked = true;
+  document.getElementById('formTenantGroup').value = '通用';
+  document.getElementById('formTenantGroupCustom').style.display = 'none';
+  document.getElementById('formTenantGroupCustom').value = '';
+  document.getElementById('formIsMeta').checked = false;
+  populateGroupSelect();
+  populateInitSourceSelect('formInitFrom');
+  document.getElementById('formInitFromGroup').style.display = 'block';
+  document.getElementById('formTenantGroupGroup').style.display = 'block';
+  document.getElementById('formIsMetaGroup').style.display = 'block';
   renderMountsListAdd([]);
   document.getElementById('formEnv').value = '';
   showModal('tenantModal');
@@ -911,7 +1214,12 @@ async function showEditModal(userId) {
   document.getElementById('formInstanceInfoGroup').style.display = 'block';
   document.getElementById('formInstanceConfigGroup').style.display = 'block';
   document.getElementById('formMountsGroupAdd').style.display = 'none';
-  document.getElementById('formInitFromTemplateGroup').style.display = 'none';
+  document.getElementById('formInitFromGroup').style.display = 'none';
+  document.getElementById('formTenantGroupGroup').style.display = 'block';
+  document.getElementById('formIsMetaGroup').style.display = 'block';
+  document.getElementById('formTenantGroup').value = data.tenant_group || '通用';
+  document.getElementById('formIsMeta').checked = !!data.is_meta;
+  populateGroupSelect();
   var ii = data.instance_info || {};
   var ic = data.instance_config || {};
   var statusEl = document.getElementById('formInstanceStatus');
@@ -1058,12 +1366,22 @@ async function submitTenant() {
   }
 
   const extraMounts = getMountsFromList();
+  const sel = document.getElementById('formTenantGroup');
+  const customInp = document.getElementById('formTenantGroupCustom');
+  const rawGroup = (sel && sel.value === '__other__') ? (customInp && customInp.value) || '' : (sel && sel.value) || '';
+  const tenantGroup = (rawGroup || '').trim() || '通用';
+  const isMeta = document.getElementById('formIsMeta').checked;
 
   const body = { user_id: userId, user_name: userName };
-  if (password) body.password = password;  // 编辑时留空则不更新密码
+  if (password) body.password = password;
   if (env !== null) body.env = env;
   body.extra_mounts = extraMounts;
-  if (mode === 'add') body.init_from_template = document.getElementById('formInitFromTemplate').checked;
+  body.is_meta = isMeta;
+  body.tenant_group = tenantGroup;
+  if (mode === 'add') {
+    const initFrom = document.getElementById('formInitFrom').value;
+    if (initFrom) body.init_from = initFrom;
+  }
 
   let data;
   if (mode === 'add') {
@@ -1139,6 +1457,105 @@ async function doDelete(userId) {
   } finally {
     setButtonLoading(btn, false);
     closeModal('confirmModal');
+  }
+}
+
+// ---- Toggle meta tenant ----
+
+function confirmToggleMeta(userId, toMeta) {
+  document.getElementById('confirmDeleteDataDirGroup').style.display = 'none';
+  const t = tenantsData.find(x => x.user_id === userId);
+  const displayName = t ? (t.user_name || t.user_id) : userId;
+  document.getElementById('confirmTitle').textContent = toMeta ? '设为元租户' : '取消元租户';
+  document.getElementById('confirmMessage').textContent =
+    toMeta
+      ? `确定将租户「${displayName}」设为元租户吗？设为元租户后，可作为分发来源和新建租户的初始化模板。`
+      : `确定取消租户「${displayName}」的元租户身份吗？取消后可正常删除该租户。`;
+  document.getElementById('confirmBtn').onclick = () => doToggleMeta(userId, toMeta);
+  document.getElementById('confirmBtn').textContent = '确定';
+  document.getElementById('confirmBtn').className = 'btn btn-primary';
+  showModal('confirmModal');
+}
+
+async function doToggleMeta(userId, toMeta) {
+  const btn = document.getElementById('confirmBtn');
+  setButtonLoading(btn, true, '处理中...');
+  try {
+    const data = await apiFetch(`/tenants/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_meta: toMeta })
+    });
+    if (data && data.ok) {
+      closeModal('confirmModal');
+      toast(data.message, 'success');
+      loadTenants();
+    } else if (data) {
+      toast(data.message || '操作失败', 'error');
+    }
+  } finally {
+    setButtonLoading(btn, false);
+    closeModal('confirmModal');
+  }
+}
+
+// ---- Quick set group ----
+
+let quickSetGroupUserId = null;
+
+function showQuickSetGroupModal(userId) {
+  quickSetGroupUserId = userId;
+  const t = tenantsData.find(x => x.user_id === userId);
+  const displayName = t ? (t.user_name || t.user_id) : userId;
+  const curGroup = t ? (t.tenant_group || '通用') : '通用';
+  document.getElementById('quickSetGroupHint').textContent = `为租户「${displayName}」选择所属组：`;
+
+  const groups = Array.from(new Set(['通用', ...(groupsData || [])])).sort();
+  const sel = document.getElementById('quickSetGroupSelect');
+  const customInp = document.getElementById('quickSetGroupCustom');
+  let html = groups.map(g => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('');
+  html += '<option value="__other__">其他 (输入新组名)</option>';
+  sel.innerHTML = html;
+
+  if (groups.includes(curGroup)) {
+    sel.value = curGroup;
+    customInp.style.display = 'none';
+    customInp.value = '';
+  } else {
+    sel.value = '__other__';
+    customInp.style.display = 'block';
+    customInp.value = curGroup;
+  }
+  sel.onchange = function() {
+    customInp.style.display = sel.value === '__other__' ? 'block' : 'none';
+  };
+  showModal('quickSetGroupModal');
+}
+
+async function doQuickSetGroup() {
+  if (!quickSetGroupUserId) return;
+  const sel = document.getElementById('quickSetGroupSelect');
+  const customInp = document.getElementById('quickSetGroupCustom');
+  const rawGroup = sel.value === '__other__' ? (customInp.value || '').trim() : (sel.value || '');
+  const tenantGroup = rawGroup || '通用';
+
+  const btn = document.getElementById('quickSetGroupBtn');
+  setButtonLoading(btn, true, '处理中...');
+  try {
+    const data = await apiFetch(`/tenants/${quickSetGroupUserId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ tenant_group: tenantGroup })
+    });
+    if (data && data.ok) {
+      closeModal('quickSetGroupModal');
+      toast(data.message, 'success');
+      loadTenants();
+      quickSetGroupUserId = null;
+    } else if (data) {
+      toast(data.message || '操作失败', 'error');
+    }
+  } finally {
+    setButtonLoading(btn, false);
+    quickSetGroupUserId = null;
   }
 }
 
@@ -1360,6 +1777,7 @@ function showImportModal() {
   document.getElementById('importFile').value = '';
   const textarea = document.getElementById('importText');
   if (!textarea.value.trim()) textarea.value = IMPORT_TEXT_DEFAULT;
+  populateInitSourceSelect('importInitFrom');
   showModal('importModal');
 }
 
@@ -1381,10 +1799,12 @@ async function submitImport() {
 
   if (!Array.isArray(tenants)) { toast('JSON 内容必须是数组', 'error'); return; }
 
-  const initFromTemplate = document.getElementById('importInitFromTemplate').checked;
+  const initFrom = document.getElementById('importInitFrom').value;
+  const payload = { tenants };
+  if (initFrom) payload.init_from = initFrom;
   const data = await apiFetch('/tenants/import', {
     method: 'POST',
-    body: JSON.stringify({ tenants, init_from_template: initFromTemplate }),
+    body: JSON.stringify(payload),
   });
   if (data) {
     toast(data.message, data.imported > 0 ? 'success' : 'error');
@@ -1430,20 +1850,36 @@ async function showDistributeModal() {
   document.getElementById('distributePresetLlmConfig').checked = false;
   document.getElementById('distributePresetEnvVars').checked = false;
   document.getElementById('distributePresetAgentPrompts').checked = false;
+  populateSourceSelect('distributeSource', true);
+  document.getElementById('distributeSource').value = '';
+  var tl = document.querySelector('#distributeSourcePicker .source-picker-label');
+  if (tl) tl.textContent = '-- 请选择来源租户 --';
   showModal('distributeModal');
 
   var $tree = jQuery('#distributeTree');
   if ($tree.jstree(true)) { $tree.jstree('destroy'); }
-  $tree.html('<div style="text-align:center;padding:1.5rem;color:#64748b">加载中...</div>');
+  $tree.html('<div style="text-align:center;padding:1.5rem;color:#64748b">请先选择分发来源</div>');
+}
 
-  var data = await apiFetch('/templates/tree');
+async function onDistributeSourceChange() {
+  var sourceId = document.getElementById('distributeSource').value;
+  var $tree = jQuery('#distributeTree');
+  if ($tree.jstree(true)) { $tree.jstree('destroy'); }
+
+  if (!sourceId) {
+    $tree.html('<div style="text-align:center;padding:1.5rem;color:#64748b">请先选择分发来源</div>');
+    return;
+  }
+
+  $tree.html('<div style="text-align:center;padding:1.5rem;color:#64748b">加载中...</div>');
+  var data = await apiFetch('/tenants/' + encodeURIComponent(sourceId) + '/file-tree');
   if (!data) return;
   if (!data.ok) {
     $tree.html('<div style="text-align:center;padding:1.5rem;color:#f87171">' + esc(data.error || '加载失败') + '</div>');
     return;
   }
   if (!data.tree || !data.tree.children || data.tree.children.length === 0) {
-    $tree.html('<div style="text-align:center;padding:1.5rem;color:#64748b">模板目录为空</div>');
+    $tree.html('<div style="text-align:center;padding:1.5rem;color:#64748b">该租户数据目录为空</div>');
     return;
   }
 
@@ -1491,6 +1927,8 @@ function getDistributePathsAndPresets() {
 }
 
 function showDistributeConfirmModal() {
+  var sourceId = document.getElementById('distributeSource').value;
+  if (!sourceId) { toast('请先选择分发来源', 'error'); return; }
   var data = getDistributePathsAndPresets();
   var paths = data.paths;
   var presets = data.presets;
@@ -1515,6 +1953,8 @@ function showDistributeConfirmModal() {
 }
 
 async function doSubmitDistribute() {
+  var sourceId = document.getElementById('distributeSource').value;
+  if (!sourceId) { toast('请先选择分发来源', 'error'); return; }
   var data2 = getDistributePathsAndPresets();
   var paths = data2.paths;
   var presets = data2.presets;
@@ -1531,7 +1971,7 @@ async function doSubmitDistribute() {
   try {
     var data = await apiFetch('/distribute', {
       method: 'POST',
-      body: JSON.stringify({ tenant_ids: ids, paths: paths, presets: presets }),
+      body: JSON.stringify({ source_tenant_id: sourceId, tenant_ids: ids, paths: paths, presets: presets }),
     });
     if (data && data.ok) {
       const results = data.results || [];
@@ -1580,8 +2020,12 @@ function showResetTenantDataModal() {
     toast('请先勾选要操作的租户', 'error');
     return;
   }
+  populateSourceSelect('resetSource', true);
+  document.getElementById('resetSource').value = '';
+  var rtl = document.querySelector('#resetSourcePicker .source-picker-label');
+  if (rtl) rtl.textContent = '-- 请选择来源租户 --';
   document.getElementById('resetTenantDataConfirmMessage').textContent =
-    '确定要将 ' + ids.join('、') + ' 等 ' + ids.length + ' 个租户的数据重置为模板状态吗？';
+    '确定要重置 ' + ids.join('、') + ' 等 ' + ids.length + ' 个租户的数据吗？';
   showModal('resetTenantDataConfirmModal');
 }
 
@@ -1591,12 +2035,17 @@ async function doSubmitResetTenantData() {
     toast('请先勾选要操作的租户', 'error');
     return;
   }
+  var sourceId = document.getElementById('resetSource').value;
+  if (!sourceId) {
+    toast('请选择重置来源', 'error');
+    return;
+  }
   var btn = document.getElementById('btnResetTenantDataConfirmOk');
   setButtonLoading(btn, true, '重置中...');
   try {
     var data = await apiFetch('/reset-tenant-data', {
       method: 'POST',
-      body: JSON.stringify({ tenant_ids: ids }),
+      body: JSON.stringify({ tenant_ids: ids, source_tenant_id: sourceId }),
     });
     if (data && data.ok) {
       var results = data.results || [];

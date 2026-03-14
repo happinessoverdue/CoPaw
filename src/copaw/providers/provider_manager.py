@@ -515,6 +515,21 @@ class ProviderManager:
                     ]
                 if not provider.freeze_url and "base_url" in config:
                     provider.base_url = config["base_url"]
+                # --- GridPaw: migrate chat_model (protocol) and generate_kwargs ---
+                if (
+                    "chat_model" in config
+                    and config["chat_model"]
+                    and isinstance(config["chat_model"], str)
+                ):
+                    provider.chat_model = config["chat_model"]
+                if (
+                    "generate_kwargs" in config
+                    and config["generate_kwargs"] is not None
+                    and isinstance(config["generate_kwargs"], dict)
+                ):
+                    provider.generate_kwargs.update(config["generate_kwargs"])
+                # --- GridPaw: end ---
+
                 self._save_provider(provider, is_builtin=True)
             # Migrate custom providers
             for provider_id, data in custom_providers.items():
@@ -533,6 +548,16 @@ class ProviderManager:
                     ]
                 if "chat_model" in data:
                     custom_provider.chat_model = data["chat_model"]
+
+                # --- GridPaw: migrate generate_kwargs (enable_thinking etc.) ---
+                if (
+                    "generate_kwargs" in data
+                    and data["generate_kwargs"] is not None
+                    and isinstance(data["generate_kwargs"], dict)
+                ):
+                    custom_provider.generate_kwargs = data["generate_kwargs"]
+                # --- GridPaw: end ---
+
                 self._save_provider(custom_provider, is_builtin=False)
             # Migrate active model
             if active_model:
@@ -593,6 +618,19 @@ class ProviderManager:
         except ImportError:
             # local_models dependencies not installed; leave model lists empty
             pass
+
+    def reload_from_disk(self) -> None:
+        """Reload providers and active model from disk. Supports legacy providers.json migration.
+        Used by ProvidersConfigWatcher for hot-reload when users distribute config externally."""
+        self.custom_providers.clear()
+        try:
+            self._migrate_legacy_providers()
+        except Exception as e:
+            logger.warning(
+                "Failed to migrate legacy providers during reload: %s", e,
+            )
+        self._init_from_storage()
+        self.update_local_models()
 
     @staticmethod
     def get_instance() -> "ProviderManager":

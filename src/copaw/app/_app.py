@@ -138,6 +138,17 @@ async def lifespan(
     # --- Model provider manager (non-reloadable, in-memory) ---
     provider_manager = ProviderManager.get_instance()
 
+    # --- GridPaw: providers hot-reload (watch providers.json + providers/*.json) ---
+    providers_watcher = None
+    try:
+        from ..providers.providers_watcher import ProvidersConfigWatcher
+        providers_watcher = ProvidersConfigWatcher()
+        await providers_watcher.start()
+        logger.debug("Providers config watcher started")
+    except Exception as e:
+        logger.warning("Failed to start providers watcher: %s", e)
+    app.state.providers_watcher = providers_watcher
+
     # expose to endpoints
     app.state.runner = runner
     app.state.channel_manager = channel_manager
@@ -414,6 +425,7 @@ async def lifespan(
         # Stop current app.state refs (post-restart instances if any)
         cfg_w = getattr(app.state, "config_watcher", None)
         mcp_w = getattr(app.state, "mcp_watcher", None)
+        prov_w = getattr(app.state, "providers_watcher", None)  # GridPaw
         cron_mgr = getattr(app.state, "cron_manager", None)
         ch_mgr = getattr(app.state, "channel_manager", None)
         mcp_mgr = getattr(app.state, "mcp_manager", None)
@@ -426,6 +438,11 @@ async def lifespan(
         if mcp_w is not None:
             try:
                 await mcp_w.stop()
+            except Exception:
+                pass
+        if prov_w is not None:
+            try:
+                await prov_w.stop()
             except Exception:
                 pass
         if cron_mgr is not None:

@@ -40,37 +40,29 @@ if STATIC_DIR.is_dir():
 # Configuration — 由 .env 经 docker-compose 注入的可配置项
 # ---------------------------------------------------------------------------
 
-# 租户容器使用的 Docker 镜像名，须与 prepare.sh build 构建的镜像名一致（两者均从 .env 读取）。
-# Nginx 对外端口，用于补充共享文件下载 URL 的端口部分。
 _NGINX_PORT     = os.environ.get("NGINX_PORT", "")
-# 租户容器使用的 Docker 镜像名，须与 prepare.sh build 构建的镜像名一致（两者均从 .env 读取）。
 TENANT_IMAGE    = os.environ.get("TENANT_IMAGE", "gridpaw-tenant:latest")
-# 宿主机上租户数据根目录，每台机器路径不同，用于构造容器 volume 挂载路径。
-TENANTS_DATA_BASE_DIR = os.environ.get("TENANTS_DATA_BASE_DIR", "/var/gridpaw/tenants_data")
-# 租户容器名前缀，容器名为 {INSTANCE_PREFIX}{user_id}（如 gridpaw-instance-zhangsan）。
 INSTANCE_PREFIX = os.environ.get("INSTANCE_PREFIX", "gridpaw-instance-")
-# 租户容器加入的 Docker 网络名，由 compose 直接注入（值由 compose 项目名 + 网络别名决定）。
-# 若修改 docker-compose.yml 的 name: 或 networks: 字段，需同步更新此处默认值。
 DOCKER_NETWORK  = os.environ.get("DOCKER_NETWORK", "gridpaw-multi-tenant-service_gridpaw-net")
-# 共享文件服务对外访问的 scheme+host（如 http://192.168.1.10），用于拼接下载 URL。
 _FILE_SERVICE_BASE_RAW = os.environ.get("FILE_SERVICE_BASE_URL", "").rstrip("/")
-# 宿主机上 Admin 数据目录，用于错误提示中的路径说明（如模板目录位置）。
-GRIDPAW_ADMIN_DATA_DIR = os.environ.get("GRIDPAW_ADMIN_DATA_DIR", "/root/var/gridpaw/admin_data")
+
+# 宿主机数据根目录，子目录按约定推导：admin_data、tenants_data、shared_files
+GRIDPAW_DATA          = os.environ.get("GRIDPAW_DATA", "/home/root/var/gridpaw_data")
+TENANTS_DATA_BASE_DIR = f"{GRIDPAW_DATA}/tenants_data"
 
 
 # ---------------------------------------------------------------------------
 # Configuration — 写死的固定值（容器内部结构决定，无需外部配置）
 # ---------------------------------------------------------------------------
 
-# 容器内文件路径（由镜像目录结构和 docker-compose volume 挂载决定，不随部署变化）
-# 租户容器内部监听端口,与 nginx.conf proxy_pass 目标端口耦合，两者须始终保持一致。只在docker网络里可见，并未映射到宿主机端口，外部只能通过nginx的统一代理访问，无法直接访问。
+# 容器内文件路径（GRIDPAW_DATA 整体挂载到 /app/gridpaw_data，子目录按约定）
 TENANT_INTERNAL_PORT = 8088
 
-TENANTS_ROOT     = Path("/app/tenants")                  # 租户数据挂载点（TENANTS_DATA_BASE_DIR 挂载到此）
-SHARED_FILES_DATA_DIR = Path("/app/shared_files")             # 共享文件存放目录的挂载点,用于共享文件服务读写共享文件
-
-DB_PATH        = Path("/app/data/db/admin.db")               # SQLite 数据库(GRIDPAW_ADMIN_DATA_DIR/db/)
-TEMPLATES_ROOT = Path("/app/data/tenant_template")  # 模板根目录，对标租户容器内 /app（智能体工作目录 /app/working 与 /app/working.secret 的父目录）
+_GRIDPAW_DATA_ROOT    = Path("/app/gridpaw_data")
+TENANTS_ROOT          = _GRIDPAW_DATA_ROOT / "tenants_data"
+SHARED_FILES_DATA_DIR = _GRIDPAW_DATA_ROOT / "shared_files"
+DB_PATH               = _GRIDPAW_DATA_ROOT / "admin_data" / "db" / "admin.db"
+TEMPLATES_ROOT        = _GRIDPAW_DATA_ROOT / "admin_data" / "tenant_template"  # 参考目录，不参与操作
 LOGIN_HTML     = Path("/app/admin-service/login.html")    # 用户登录页
 ADMIN_HTML     = Path("/app/admin-service/admin.html")    # 管理面板页
 
@@ -126,7 +118,7 @@ tenant_db: db.TenantDB
 async def startup():
     global tenant_db
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)  # 确保 db 目录存在（SQLite 不创建父目录）
-    TEMPLATES_ROOT.mkdir(parents=True, exist_ok=True)  # 确保模板根目录存在，便于首次部署
+    TEMPLATES_ROOT.mkdir(parents=True, exist_ok=True)  # 保留旧模板目录供管理员参考
     tenant_db = db.TenantDB(db_path=DB_PATH, instance_prefix=INSTANCE_PREFIX, tenants_data_base_dir=TENANTS_DATA_BASE_DIR)
     # 修复：确保所有已有租户的目录存在（若被误删则重建空目录）
     for t in tenant_db.get_all_tenants():
@@ -412,13 +404,16 @@ async def api_list_tenants(request: Request):
         result.append({
             "user_id": uid,
             "user_name": t["user_name"],
+            "is_meta": t.get("is_meta", False),
+            "tenant_group": t.get("tenant_group", "通用"),
             "env": t.get("env", {}),
             "created_at": t.get("created_at", ""),
             "updated_at": t.get("updated_at", ""),
             "container": container_info,
         })
 
-    return {"tenants": result, "config": {"instance_prefix": INSTANCE_PREFIX}}
+    groups = tenant_db.get_groups()
+    return {"tenants": result, "config": {"instance_prefix": INSTANCE_PREFIX, "groups": groups}}
 
 
 @app.get("/admin/api/tenants/{user_id}")
@@ -464,6 +459,8 @@ async def api_get_tenant(user_id: str, request: Request):
         "user_id": tenant["user_id"],
         "user_name": tenant["user_name"],
         "password": tenant.get("password", ""),
+        "is_meta": tenant.get("is_meta", False),
+        "tenant_group": tenant.get("tenant_group", "通用"),
         "env": tenant.get("env", {}),
         "instance_info": instance_info,
         "instance_config": instance_config,
@@ -484,15 +481,18 @@ async def api_add_tenant(request: Request):
     pw = body.get("password", "")
     env = body.get("env")
     extra_mounts = body.get("extra_mounts")
-    init_from_template = body.get("init_from_template", True)
+    is_meta = bool(body.get("is_meta", False))
+    tenant_group = body.get("tenant_group")
+    init_from = body.get("init_from", "")  # source tenant user_id, empty = no init
 
-    ok, msg = tenant_db.add_tenant(uid, uname, pw, env, extra_mounts)
+    ok, msg = tenant_db.add_tenant(uid, uname, pw, env, extra_mounts,
+                                   is_meta=is_meta, tenant_group=tenant_group)
     if not ok:
         return JSONResponse({"ok": False, "message": msg}, status_code=400)
-    if init_from_template:
-        init_ok, init_msg = _init_tenant_from_template(uid)
+    if init_from:
+        init_ok, init_msg = _init_tenant_from_source(uid, init_from)
         if not init_ok:
-            return {"ok": True, "message": f"租户 '{uid}' 创建成功，但模板初始化失败: {init_msg}"}
+            return {"ok": True, "message": f"租户 '{uid}' 创建成功，但初始化失败: {init_msg}"}
     return {"ok": True, "message": f"租户 '{uid}' 创建成功"}
 
 
@@ -509,6 +509,8 @@ async def api_update_tenant(user_id: str, request: Request):
         password=body.get("password"),
         env=body.get("env"),
         extra_mounts=body.get("extra_mounts") if "extra_mounts" in body else None,
+        is_meta=body.get("is_meta") if "is_meta" in body else None,
+        tenant_group=body.get("tenant_group") if "tenant_group" in body else None,
     )
     if ok:
         return {"ok": True, "message": f"租户 '{user_id}' 更新成功"}
@@ -525,22 +527,23 @@ async def api_delete_tenant(
     if denied:
         return denied
 
+    ok, msg = tenant_db.delete_tenant(user_id)
+    if not ok:
+        return JSONResponse({"ok": False, "message": msg}, status_code=400)
+
     container_name = f"{INSTANCE_PREFIX}{user_id}"
     dm.stop_container(container_name)
     dm.remove_container(container_name)
 
-    ok, msg = tenant_db.delete_tenant(user_id)
-    if ok:
-        if delete_data_dir:
-            data_path = TENANTS_ROOT / user_id  # 容器内挂载点，宿主机 TENANTS_DATA_BASE_DIR 挂载到 /app/tenants
-            try:
-                if data_path.exists():
-                    shutil.rmtree(data_path, ignore_errors=True)
-                    return {"ok": True, "message": f"租户 '{user_id}' 已删除（容器与数据目录已清理）"}
-            except OSError as e:
-                logger.warning("Failed to remove tenant data dir %s: %s", data_path, e)
-        return {"ok": True, "message": f"租户 '{user_id}' 已删除（容器已清理）"}
-    return JSONResponse({"ok": False, "message": msg}, status_code=400)
+    if delete_data_dir:
+        data_path = TENANTS_ROOT / user_id
+        try:
+            if data_path.exists():
+                shutil.rmtree(data_path, ignore_errors=True)
+                return {"ok": True, "message": f"租户 '{user_id}' 已删除（容器与数据目录已清理）"}
+        except OSError as e:
+            logger.warning("Failed to remove tenant data dir %s: %s", data_path, e)
+    return {"ok": True, "message": f"租户 '{user_id}' 已删除（容器已清理）"}
 
 
 @app.post("/admin/api/tenants/import")
@@ -553,19 +556,19 @@ async def api_import_tenants(request: Request):
     tenant_list = body.get("tenants", [])
     if not isinstance(tenant_list, list):
         return JSONResponse({"ok": False, "message": "tenants 必须是数组"}, status_code=400)
-    init_from_template = body.get("init_from_template", True)
+    init_from = body.get("init_from", "")  # source tenant user_id, empty = no init
 
     count, errors, imported_ids = tenant_db.import_tenants(tenant_list)
     init_failures = []
-    if init_from_template and imported_ids:
+    if init_from and imported_ids:
         for uid in imported_ids:
-            init_ok, init_msg = _init_tenant_from_template(uid)
+            init_ok, init_msg = _init_tenant_from_source(uid, init_from)
             if not init_ok:
                 init_failures.append(f"{uid}: {init_msg}")
-                logger.warning("Import init template failed for %s: %s", uid, init_msg)
+                logger.warning("Import init from %s failed for %s: %s", init_from, uid, init_msg)
     msg = f"成功导入 {count} 个租户" + (f"，{len(errors)} 个失败" if errors else "")
     if init_failures:
-        msg += f"；模板初始化失败: {', '.join(init_failures[:3])}" + ("..." if len(init_failures) > 3 else "")
+        msg += f"；初始化失败: {', '.join(init_failures[:3])}" + ("..." if len(init_failures) > 3 else "")
     return {
         "ok": True,
         "imported": count,
@@ -589,18 +592,19 @@ async def api_batch_delete_tenants(request: Request):
 
     results = []
     for uid in user_ids:
-        container_name = f"{INSTANCE_PREFIX}{uid}"
-        dm.stop_container(container_name)
-        dm.remove_container(container_name)
         ok, msg = tenant_db.delete_tenant(uid)
+        if ok:
+            container_name = f"{INSTANCE_PREFIX}{uid}"
+            dm.stop_container(container_name)
+            dm.remove_container(container_name)
+            if delete_data_dir:
+                data_path = TENANTS_ROOT / uid
+                try:
+                    if data_path.exists():
+                        shutil.rmtree(data_path, ignore_errors=True)
+                except OSError as e:
+                    logger.warning("Failed to remove tenant data dir %s: %s", data_path, e)
         results.append({"user_id": uid, "ok": ok, "message": msg})
-        if ok and delete_data_dir:
-            data_path = TENANTS_ROOT / uid  # 容器内挂载点，宿主机 TENANTS_DATA_BASE_DIR 挂载到 /app/tenants
-            try:
-                if data_path.exists():
-                    shutil.rmtree(data_path, ignore_errors=True)
-            except OSError as e:
-                logger.warning("Failed to remove tenant data dir %s: %s", data_path, e)
 
     ok_count = sum(1 for r in results if r["ok"])
     fail_count = len(results) - ok_count
@@ -631,6 +635,7 @@ async def api_start_container(user_id: str, request: Request):
         env.update(tenant["env"])
     extra_mounts = tenant.get("extra_mounts") or []
 
+    _ensure_tenant_dirs(user_id)
     ok, msg = dm.create_and_start_container(
         container_name=container_name,
         image=TENANT_IMAGE,
@@ -694,6 +699,7 @@ async def api_recreate_container(user_id: str, request: Request):
         env.update(tenant["env"])
     extra_mounts = tenant.get("extra_mounts") or []
 
+    _ensure_tenant_dirs(user_id)
     ok, msg = dm.create_and_start_container(
         container_name=container_name,
         image=TENANT_IMAGE,
@@ -768,6 +774,7 @@ async def api_batch_containers(request: Request):
             if tenant.get("env"):
                 env.update(tenant["env"])
             extra_mounts = tenant.get("extra_mounts") or []
+            _ensure_tenant_dirs(uid)
             ok, msg = dm.create_and_start_container(
                 container_name=container_name, image=TENANT_IMAGE,
                 data_dir=f"{TENANTS_DATA_BASE_DIR}/{uid}/working", port=TENANT_INTERNAL_PORT,
@@ -788,6 +795,7 @@ async def api_batch_containers(request: Request):
             if tenant.get("env"):
                 env.update(tenant["env"])
             extra_mounts = tenant.get("extra_mounts") or []
+            _ensure_tenant_dirs(uid)
             ok, msg = dm.create_and_start_container(
                 container_name=container_name, image=TENANT_IMAGE,
                 data_dir=f"{TENANTS_DATA_BASE_DIR}/{uid}/working", port=TENANT_INTERNAL_PORT,
@@ -809,11 +817,10 @@ async def api_batch_containers(request: Request):
 
 
 # ===================================================================
-# PART 6: Admin API — Template Distribution
+# PART 6: Admin API — Meta Tenants, Groups, Distribution
 # ===================================================================
 
-# 快捷分发预设：每个预设对应模板内要分发的相对路径。
-# llm_config/env_vars 目标为各租户 working.secret；agent_prompts 目标为各租户 working。
+# 快捷分发预设：每个预设对应要分发的相对路径（相对于来源租户根目录）。
 PRESET_PATHS = {
     "llm_config": ["working.secret/providers.json"],
     "env_vars": ["working.secret/envs.json"],
@@ -826,44 +833,31 @@ PRESET_PATHS = {
     ],
 }
 
-
-def _get_template_root_hint() -> str:
-    """返回模板根目录的宿主机路径提示，用于错误信息。"""
-    return f"{GRIDPAW_ADMIN_DATA_DIR.rstrip('/')}/tenant_template/"
+_IGNORED_NAMES = frozenset({".DS_Store"})
 
 
-def _validate_preset_files(preset_paths: list[str]) -> tuple[bool, str]:
-    """
-    校验预设路径对应的源文件均存在。
-    返回 (ok, error_message)。ok 为 True 时 error_message 为空。
-    """
-    missing = []
-    for rel in preset_paths:
-        full = TEMPLATES_ROOT / rel
-        if not full.exists() or not full.is_file():
-            missing.append(rel.split("/")[-1])
-    if not missing:
-        return True, ""
-    hint = _get_template_root_hint()
-    files_str = "、".join(sorted(set(missing)))
-    return False, (
-        f"模板目录下缺少以下文件: {files_str}。"
-        f"请在 {hint} 下按路径创建并填写这些文件。"
-    )
+def _ensure_tenant_dirs(user_id: str) -> None:
+    """确保租户的 working 与 working.secret 目录存在。"""
+    tenant_dir = TENANTS_ROOT / user_id
+    (tenant_dir / "working").mkdir(parents=True, exist_ok=True)
+    (tenant_dir / "working.secret").mkdir(parents=True, exist_ok=True)
 
 
-# 模板树与分发时忽略的文件/目录名（如 macOS 的 .DS_Store）
-_IGNORED_TEMPLATE_NAMES = frozenset({".DS_Store"})
+# ---------------------------------------------------------------------------
+# Source-based init (replaces old template-based init)
+# ---------------------------------------------------------------------------
 
+def _init_tenant_from_source(user_id: str, source_user_id: str) -> tuple[bool, str]:
+    """从指定来源租户的数据目录复制 working 和 working.secret 到新租户目录。"""
+    source_dir = TENANTS_ROOT / source_user_id
+    if not source_dir.exists():
+        return False, f"来源租户 '{source_user_id}' 的数据目录不存在"
 
-def _init_tenant_from_template(user_id: str) -> tuple[bool, str]:
-    """将模板目录的 working 和 working.secret 拷贝到租户目录，用于新租户初始化。
-    返回 (ok, message)。租户目录在 admin 容器内为 TENANTS_ROOT/user_id。"""
     tenant_dir = TENANTS_ROOT / user_id
     tenant_dir.mkdir(parents=True, exist_ok=True)
     init_errors = []
     for subdir in ("working", "working.secret"):
-        src = TEMPLATES_ROOT / subdir
+        src = source_dir / subdir
         dst = tenant_dir / subdir
         try:
             if not src.exists():
@@ -876,92 +870,167 @@ def _init_tenant_from_template(user_id: str) -> tuple[bool, str]:
                 shutil.copy(src, dst)
         except Exception as e:
             init_errors.append(f"{subdir}: {e}")
-            logger.warning("Init tenant %s from template failed for %s: %s", user_id, subdir, e)
+            logger.warning("Init tenant %s from %s failed for %s: %s", user_id, source_user_id, subdir, e)
     if init_errors:
         return False, "; ".join(init_errors)
-    return True, "模板初始化完成"
+    return True, f"已从租户 '{source_user_id}' 复制初始化"
 
 
-def _build_tree_node(p: Path, rel_path: str) -> dict:
-    """递归构建目录树节点，path 为相对于 TEMPLATES_ROOT 的路径。忽略 .DS_Store 等系统文件。"""
-    name = p.name or TEMPLATES_ROOT.name
+# ---------------------------------------------------------------------------
+# File tree & path utilities (generalized for any root directory)
+# ---------------------------------------------------------------------------
+
+def _build_tree_node(p: Path, rel_path: str, root: Path) -> dict:
+    """递归构建目录树节点。忽略 .DS_Store 等系统文件。"""
+    name = p.name or root.name
     is_dir = p.is_dir()
     node = {"name": name, "path": rel_path, "is_dir": is_dir}
     if is_dir:
         node["children"] = []
         for child in sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
-            if child.name in _IGNORED_TEMPLATE_NAMES:
+            if child.name in _IGNORED_NAMES:
                 continue
             child_rel = f"{rel_path}/{child.name}" if rel_path else child.name
-            node["children"].append(_build_tree_node(child, child_rel))
+            node["children"].append(_build_tree_node(child, child_rel, root))
     return node
 
 
-def _is_path_safe(rel_path: str) -> bool:
-    """校验相对路径在模板根内，禁止 .. 等穿越。"""
+def _is_path_safe(rel_path: str, root: Path) -> bool:
+    """校验相对路径在 root 内，禁止 .. 等穿越。"""
     if not rel_path:
         return True
     parts = Path(rel_path).parts
     if ".." in parts or rel_path.startswith("/"):
         return False
-    resolved = (TEMPLATES_ROOT / rel_path).resolve()
-    return str(resolved).startswith(str(TEMPLATES_ROOT.resolve()))
+    resolved = (root / rel_path).resolve()
+    return str(resolved).startswith(str(root.resolve()))
 
 
-def _expand_paths(paths: list[str]) -> list[str]:
+def _expand_paths(paths: list[str], root: Path) -> list[str]:
     """将选中的路径展开为所有要复制的项（勾选目录则递归包含其下所有内容）。"""
-    seen = set()
-    result = []
+    seen: set[str] = set()
+    result: list[str] = []
     for rel in paths:
         if not rel or rel in seen:
             continue
-        full = TEMPLATES_ROOT / rel
+        full = root / rel
         if not full.exists():
             continue
         if full.is_file():
-            if full.name not in _IGNORED_TEMPLATE_NAMES and rel not in seen:
+            if full.name not in _IGNORED_NAMES and rel not in seen:
                 seen.add(rel)
                 result.append(rel)
         else:
             for f in full.rglob("*"):
-                if f.is_file() and f.name not in _IGNORED_TEMPLATE_NAMES:
-                    r = str(f.relative_to(TEMPLATES_ROOT)).replace("\\", "/")
+                if f.is_file() and f.name not in _IGNORED_NAMES:
+                    r = str(f.relative_to(root)).replace("\\", "/")
                     if r not in seen:
                         seen.add(r)
                         result.append(r)
     return result
 
 
-@app.get("/admin/api/templates/tree")
-async def api_templates_tree(request: Request):
-    """获取模板目录完整树结构，一次性返回。"""
+def _validate_preset_files_in_source(preset_paths: list[str], source_root: Path) -> tuple[bool, str]:
+    """校验来源目录中预设文件是否存在。"""
+    missing = []
+    for rel in preset_paths:
+        full = source_root / rel
+        if not full.exists() or not full.is_file():
+            missing.append(rel.split("/")[-1])
+    if not missing:
+        return True, ""
+    files_str = "、".join(sorted(set(missing)))
+    return False, f"来源租户目录中缺少以下文件: {files_str}"
+
+
+# ---------------------------------------------------------------------------
+# Meta tenant & group APIs
+# ---------------------------------------------------------------------------
+
+@app.get("/admin/api/meta-tenants")
+async def api_meta_tenants(request: Request):
+    """返回所有元租户，按 tenant_group 分组。"""
     denied = _require_admin(request)
     if denied:
         return denied
 
-    if not TEMPLATES_ROOT.is_dir():
-        return {"ok": False, "error": f"模板目录不存在: {TEMPLATES_ROOT}", "tree": None}
+    meta_list = tenant_db.get_meta_tenants()
+    statuses = dm.get_all_instance_statuses(prefix=INSTANCE_PREFIX)
+    result = []
+    for t in meta_list:
+        uid = t["user_id"]
+        container_name = f"{INSTANCE_PREFIX}{uid}"
+        container_info = statuses.get(container_name, {"status": "not_found", "running_for": ""})
+        result.append({
+            "user_id": uid,
+            "user_name": t["user_name"],
+            "tenant_group": t.get("tenant_group", "通用"),
+            "container": container_info,
+        })
+    return {"ok": True, "meta_tenants": result}
 
-    root_node = _build_tree_node(TEMPLATES_ROOT, "")
+
+@app.get("/admin/api/groups")
+async def api_groups(request: Request):
+    """返回去重的租户组列表。"""
+    denied = _require_admin(request)
+    if denied:
+        return denied
+
+    groups = tenant_db.get_groups()
+    return {"ok": True, "groups": groups}
+
+
+# ---------------------------------------------------------------------------
+# Tenant file tree API (replaces old templates/tree)
+# ---------------------------------------------------------------------------
+
+@app.get("/admin/api/tenants/{user_id}/file-tree")
+async def api_tenant_file_tree(user_id: str, request: Request):
+    """获取指定租户数据目录的完整树结构。"""
+    denied = _require_admin(request)
+    if denied:
+        return denied
+
+    tenant = tenant_db.get_tenant(user_id)
+    if not tenant:
+        return JSONResponse({"ok": False, "error": f"租户 '{user_id}' 不存在"}, status_code=404)
+
+    tenant_dir = TENANTS_ROOT / user_id
+    if not tenant_dir.is_dir():
+        return {"ok": False, "error": f"租户 '{user_id}' 的数据目录不存在", "tree": None}
+
+    root_node = _build_tree_node(tenant_dir, "", tenant_dir)
     return {"ok": True, "tree": root_node}
 
 
+# ---------------------------------------------------------------------------
+# Distribution (source = any tenant)
+# ---------------------------------------------------------------------------
+
 @app.post("/admin/api/distribute")
 async def api_distribute(request: Request):
-    """将选中的模板文件/目录分发到各租户。勾选目录即递归包含其下所有内容，覆盖已存在文件。
-    支持 presets 快捷分发：llm_config(providers.json)、env_vars(envs.json)、agent_prompts(AGENTS/PROFILE/SOUL/MEMORY/HEARTBEAT.md)。
-    """
+    """从指定来源租户的目录分发文件到目标租户。"""
     denied = _require_admin(request)
     if denied:
         return denied
 
     body = await request.json()
+    source_tenant_id = body.get("source_tenant_id", "")
     tenant_ids = body.get("tenant_ids", [])
     paths = list(body.get("paths", []))
     presets = body.get("presets", [])
 
-    # 将预设路径合并到 paths（去重）
-    preset_paths = []
+    if not source_tenant_id:
+        return JSONResponse({"ok": False, "message": "source_tenant_id 不能为空"}, status_code=400)
+    if not tenant_ids:
+        return JSONResponse({"ok": False, "message": "tenant_ids 不能为空"}, status_code=400)
+
+    source_root = TENANTS_ROOT / source_tenant_id
+    if not source_root.is_dir():
+        return JSONResponse({"ok": False, "message": f"来源租户 '{source_tenant_id}' 的数据目录不存在"}, status_code=400)
+
+    preset_paths: list[str] = []
     for preset_id in presets:
         if preset_id in PRESET_PATHS:
             for rel in PRESET_PATHS[preset_id]:
@@ -970,30 +1039,24 @@ async def api_distribute(request: Request):
                 if rel not in preset_paths:
                     preset_paths.append(rel)
 
-    if not tenant_ids:
-        return JSONResponse({"ok": False, "message": "tenant_ids 不能为空"}, status_code=400)
     if not paths:
         return JSONResponse({"ok": False, "message": "请至少选择一个文件或目录（含快捷分发）"}, status_code=400)
 
-    # 校验路径安全
     for p in paths:
-        if not _is_path_safe(p):
+        if not _is_path_safe(p, source_root):
             return JSONResponse({"ok": False, "message": f"非法路径: {p}"}, status_code=400)
 
-    # 校验预设文件存在（快捷分发选中的文件必须在模板中存在）
     if preset_paths:
-        ok_val, err_msg = _validate_preset_files(preset_paths)
+        ok_val, err_msg = _validate_preset_files_in_source(preset_paths, source_root)
         if not ok_val:
             return JSONResponse({"ok": False, "message": err_msg}, status_code=400)
 
-    # 校验租户存在
     all_tenants = {t["user_id"]: t for t in tenant_db.get_all_tenants()}
     for uid in tenant_ids:
         if uid not in all_tenants:
             return JSONResponse({"ok": False, "message": f"租户 '{uid}' 不存在"}, status_code=400)
 
-    # 展开路径（目录 → 其下所有文件）
-    expanded = _expand_paths(paths)
+    expanded = _expand_paths(paths, source_root)
     if not expanded:
         return JSONResponse({"ok": False, "message": "选中的路径中无有效文件"}, status_code=400)
 
@@ -1004,15 +1067,15 @@ async def api_distribute(request: Request):
         ok_count, fail_count = 0, 0
         err_msg = ""
         for rel in expanded:
-            src = TEMPLATES_ROOT / rel
+            src = source_root / rel
             dst = tenant_dir / rel
             try:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 if src.is_file():
-                    shutil.copy(src, dst)  # 不保留原时间戳，使用分发时时间
+                    shutil.copy(src, dst)
                     ok_count += 1
                 else:
-                    shutil.copytree(src, dst, dirs_exist_ok=True, copy_function=shutil.copy)  # 同上
+                    shutil.copytree(src, dst, dirs_exist_ok=True, copy_function=shutil.copy)
                     ok_count += 1
             except Exception as e:
                 fail_count += 1
@@ -1029,22 +1092,26 @@ async def api_distribute(request: Request):
     return {"ok": True, "results": results}
 
 
-def _reset_tenant_data(user_id: str) -> tuple[bool, str]:
-    """重置租户数据：停止容器 → 删除租户目录下所有子项 → 从模板拷贝 → 若原在运行则启动。
-    返回 (ok, message)。"""
+# ---------------------------------------------------------------------------
+# Reset tenant data (source = any tenant)
+# ---------------------------------------------------------------------------
+
+def _reset_tenant_data(user_id: str, source_user_id: str) -> tuple[bool, str]:
+    """重置租户数据：停止容器 → 清空 → 从来源租户复制 → 若原在运行则启动。"""
     container_name = f"{INSTANCE_PREFIX}{user_id}"
     tenant_dir = TENANTS_ROOT / user_id
+    source_dir = TENANTS_ROOT / source_user_id
     tenant_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. 若容器运行中则先停止，并记录以便后续启动
+    if not source_dir.exists():
+        return False, f"来源租户 '{source_user_id}' 的数据目录不存在"
+
     was_running = dm.get_container_runtime_config(container_name) is not None
     if was_running:
         ok_stop, msg_stop = dm.stop_container(container_name)
         if not ok_stop:
             return False, f"停止容器失败: {msg_stop}"
 
-    # 2. 删除租户目录下所有子项（保留租户目录本身）
-    # 使用 rm -rf 而非 shutil.rmtree，避免租户容器创建的文件因权限/属主导致 Python 删除失败
     try:
         for item in list(tenant_dir.iterdir()):
             subprocess.run(["rm", "-rf", str(item)], check=True)
@@ -1052,12 +1119,9 @@ def _reset_tenant_data(user_id: str) -> tuple[bool, str]:
         logger.warning("Reset tenant %s: failed to clear dir (rm -rf): %s", user_id, e)
         return False, f"清空租户目录失败: {e}"
 
-    # 3. 从模板目录拷贝所有内容到租户目录
-    if not TEMPLATES_ROOT.exists():
-        return False, f"模板目录不存在: {TEMPLATES_ROOT}"
     copy_errors = []
-    for item in TEMPLATES_ROOT.iterdir():
-        if item.name in _IGNORED_TEMPLATE_NAMES:
+    for item in source_dir.iterdir():
+        if item.name in _IGNORED_NAMES:
             continue
         dst = tenant_dir / item.name
         try:
@@ -1069,9 +1133,8 @@ def _reset_tenant_data(user_id: str) -> tuple[bool, str]:
             copy_errors.append(f"{item.name}: {e}")
             logger.warning("Reset tenant %s: copy %s failed: %s", user_id, item.name, e)
     if copy_errors:
-        return False, "拷贝模板失败: " + "; ".join(copy_errors)
+        return False, "从来源复制失败: " + "; ".join(copy_errors)
 
-    # 4. 若原在运行则启动容器
     if was_running:
         tenant = tenant_db.get_tenant(user_id)
         if not tenant:
@@ -1080,6 +1143,7 @@ def _reset_tenant_data(user_id: str) -> tuple[bool, str]:
         if tenant.get("env"):
             env.update(tenant["env"])
         extra_mounts = tenant.get("extra_mounts") or []
+        _ensure_tenant_dirs(user_id)
         ok_start, msg_start = dm.create_and_start_container(
             container_name=container_name, image=TENANT_IMAGE,
             data_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working", port=TENANT_INTERNAL_PORT,
@@ -1089,30 +1153,35 @@ def _reset_tenant_data(user_id: str) -> tuple[bool, str]:
         if not ok_start:
             return False, f"数据已重置，但启动容器失败: {msg_start}"
 
-    return True, "重置完成，数据已恢复为模板状态"
+    return True, f"重置完成，数据已从租户 '{source_user_id}' 恢复"
 
 
 @app.post("/admin/api/reset-tenant-data")
 async def api_reset_tenant_data(request: Request):
-    """批量重置租户数据：停止 → 清空租户目录 → 从模板拷贝 → 启动（若原在运行）。"""
+    """批量重置租户数据：从指定来源租户复制。"""
     denied = _require_admin(request)
     if denied:
         return denied
 
     body = await request.json()
     tenant_ids = body.get("tenant_ids", [])
+    source_tenant_id = body.get("source_tenant_id", "")
 
     if not tenant_ids:
         return JSONResponse({"ok": False, "message": "tenant_ids 不能为空"}, status_code=400)
+    if not source_tenant_id:
+        return JSONResponse({"ok": False, "message": "source_tenant_id 不能为空"}, status_code=400)
 
     all_tenants = {t["user_id"]: t for t in tenant_db.get_all_tenants()}
     for uid in tenant_ids:
         if uid not in all_tenants:
             return JSONResponse({"ok": False, "message": f"租户 '{uid}' 不存在"}, status_code=400)
+    if source_tenant_id not in all_tenants:
+        return JSONResponse({"ok": False, "message": f"来源租户 '{source_tenant_id}' 不存在"}, status_code=400)
 
     results = []
     for uid in tenant_ids:
-        ok, msg = _reset_tenant_data(uid)
+        ok, msg = _reset_tenant_data(uid, source_tenant_id)
         results.append({"user_id": uid, "ok": ok, "message": msg})
 
     return {"ok": True, "results": results}

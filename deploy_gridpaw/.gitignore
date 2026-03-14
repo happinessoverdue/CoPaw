@@ -1,23 +1,30 @@
 # Python cache
 __pycache__/
 
+ .DS_Store
+
 # Environment config (contains secrets)
 .env
 
-# Runtime data (SQLite database)
-data/*
+# gridpaw_data 已纳入 Git 跟踪，作为完整部署模板随仓库分发
 
 # Shared file service storage (default volume)
 shared_files/
 
-# Exported images
-images/
+# Exported images（目录结构保留，仅忽略导出的镜像文件）
+images/*.tar
+images/*.tar.gz
+images/**/*.tar
+images/**/*.tar.gz
+
+# gridpaw_data 下所有内容均纳入 Git
+!gridpaw_data/**
 
 # vibe coding（AI 工具相关，均不跟踪）
 .claude
 .cursor
 .cursorignore
 openspec
-AGENTS.md
+# AGENTS.md # 模板AGENTS.md纳入跟踪
 CLAUDE.md
 *.tmp

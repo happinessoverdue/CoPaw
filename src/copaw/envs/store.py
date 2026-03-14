@@ -91,13 +91,16 @@ def _migrate_legacy_envs_json(path: Path) -> None:
 
 
 # Security-sensitive envs should come from process/system environment,
-# not persisted envs.json.
+# not persisted envs.json. These are excluded from hot-reload injection.
 _PROTECTED_BOOTSTRAP_KEYS = frozenset(
     {
         "COPAW_WORKING_DIR",
         "COPAW_SECRET_DIR",
     },
 )
+
+# Track last applied envs (excluding protected) for _sync_environ on reload.
+_last_loaded_envs: dict[str, str] = {}
 
 
 def get_envs_json_path() -> Path:
@@ -231,6 +234,7 @@ def load_envs_into_environ() -> dict[str, str]:
         Full persisted mapping from envs.json, including protected keys
         that are intentionally not injected into ``os.environ``.
     """
+    global _last_loaded_envs
     envs = load_envs()
     bootstrap_envs = {
         key: value
@@ -239,4 +243,23 @@ def load_envs_into_environ() -> dict[str, str]:
     }
     # Do not override explicit runtime/system env vars.
     _apply_to_environ(bootstrap_envs, overwrite=False)
+    _last_loaded_envs = bootstrap_envs.copy()
     return envs
+
+
+def reload_envs_from_disk() -> None:
+    """Reload envs.json and sync to os.environ. Protected keys are excluded.
+
+    Used by secret dir config watcher for hot-reload when users distribute
+    envs.json externally. Call after detecting envs.json file change.
+    """
+    global _last_loaded_envs
+    path = get_envs_json_path()
+    new_envs = load_envs(path)
+    new_applied = {
+        key: value
+        for key, value in new_envs.items()
+        if key not in _PROTECTED_BOOTSTRAP_KEYS
+    }
+    _sync_environ(_last_loaded_envs, new_applied)
+    _last_loaded_envs = new_applied.copy()

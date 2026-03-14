@@ -379,12 +379,10 @@ def cmd_up(services: Optional[List[str]] = None) -> None:
     # 若启动 admin（未指定服务时启动全部，或明确指定 admin），则先确保宿主机数据目录存在
     need_admin = not svc or "admin" in svc
     if need_admin:
-        admin_dir = _read_env("GRIDPAW_ADMIN_DATA_DIR") or "/root/var/gridpaw/admin_data"
-        tenants_dir = _read_env("TENANTS_DATA_BASE_DIR") or "/root/var/gridpaw/tenants_data"
-        shared_dir = _read_env("SHARED_FILES_DATA_DIR") or "/root/var/gridpaw/shared_files"
-        print("==> Ensuring host data dirs exist...")
-        for d in (admin_dir, tenants_dir, shared_dir):
-            Path(d).mkdir(parents=True, exist_ok=True)
+        gridpaw_data = _read_env("GRIDPAW_DATA") or "/var/gridpaw"
+        print(f"==> Ensuring host data dirs exist under {gridpaw_data} ...")
+        for sub in ("admin_data", "tenants_data", "shared_files"):
+            Path(gridpaw_data, sub).mkdir(parents=True, exist_ok=True)
     if svc:
         print(f"==> Starting: {', '.join(svc)} ...")
     else:
