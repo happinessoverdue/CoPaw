@@ -19,6 +19,7 @@ images/**/*.tar.gz
 
 # gridpaw_data 下所有内容均纳入 Git
 !gridpaw_data/**
+gridpaw_data/admin_data/tenant_template/working/customized_skills/
 
 # vibe coding（AI 工具相关，均不跟踪）
 .claude
