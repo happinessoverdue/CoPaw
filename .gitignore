@@ -97,3 +97,8 @@ dev_docs/
 
 # deploy_gridpaw/gridpaw_data 部署模板：目录下所有内容均纳入跟踪
 !deploy_gridpaw/gridpaw_data/**
+# tenant_template 不纳入跟踪（含敏感配置、运行时生成内容等）
+deploy_gridpaw/gridpaw_data/admin_data/tenant_template/
+# tenants_data 仅保留目录占位，不跟踪其下文件
+deploy_gridpaw/gridpaw_data/tenants_data/**
+!deploy_gridpaw/gridpaw_data/tenants_data/.gitkeep
