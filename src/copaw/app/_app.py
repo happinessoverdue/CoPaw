@@ -17,6 +17,7 @@ from ..config.utils import get_config_path
 from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
 from ..__version__ import __version__
 from ..utils.logging import setup_logger, add_copaw_file_handler
+from .auth import AuthMiddleware
 from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.voice import voice_router
@@ -243,6 +244,8 @@ app = FastAPI(
 # Add agent context middleware for agent-scoped routes
 app.add_middleware(AgentContextMiddleware)
 
+app.add_middleware(AuthMiddleware)
+
 # Apply CORS middleware if CORS_ORIGINS is set
 if CORS_ORIGINS:
     origins = [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()]
@@ -339,7 +342,13 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         f = _console_path / "logo.png"
         if f.is_file():
             return FileResponse(f, media_type="image/png")
+        raise HTTPException(status_code=404, detail="Not Found")
 
+    @app.get("/dark-logo.png")
+    def _console_dark_logo():
+        f = _console_path / "dark-logo.png"
+        if f.is_file():
+            return FileResponse(f, media_type="image/png")
         raise HTTPException(status_code=404, detail="Not Found")
 
     @app.get("/copaw-symbol.svg")
@@ -347,7 +356,13 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         f = _console_path / "copaw-symbol.svg"
         if f.is_file():
             return FileResponse(f, media_type="image/svg+xml")
+        raise HTTPException(status_code=404, detail="Not Found")
 
+    @app.get("/copaw-dark.png")
+    def _console_dark_icon():
+        f = _console_path / "copaw-dark.png"
+        if f.is_file():
+            return FileResponse(f, media_type="image/png")
         raise HTTPException(status_code=404, detail="Not Found")
 
     _assets_dir = _console_path / "assets"

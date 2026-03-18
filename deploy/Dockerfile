@@ -24,9 +24,11 @@ ENV COPAW_WORKING_DIR=/app/working
 ENV COPAW_SECRET_DIR=/app/working.secret
 ENV TZ=Asia/Shanghai
 
-# Available channels for this image.
-# Override at runtime with -e COPAW_ENABLED_CHANNELS=... if needed.
-ARG COPAW_ENABLED_CHANNELS="discord,telegram,dingtalk,feishu,qq,console"
+# Channel filtering: use COPAW_DISABLED_CHANNELS (exclusion, recommended)
+# or COPAW_ENABLED_CHANNELS (whitelist). Override at runtime with -e.
+ARG COPAW_DISABLED_CHANNELS="imessage"
+ENV COPAW_DISABLED_CHANNELS=${COPAW_DISABLED_CHANNELS}
+ARG COPAW_ENABLED_CHANNELS=""
 ENV COPAW_ENABLED_CHANNELS=${COPAW_ENABLED_CHANNELS}
 
 WORKDIR ${WORKSPACE_DIR}

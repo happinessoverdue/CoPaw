@@ -3,15 +3,17 @@ import os
 import json
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal
+
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 import shortuuid
 
-from ..providers.models import ModelSlotConfig
+from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
+    WORKING_DIR,
 )
-from .timezone import detect_system_timezone
+from ..providers.models import ModelSlotConfig
 
 
 def generate_short_agent_id() -> str:
@@ -55,6 +57,10 @@ class DiscordConfig(BaseChannelConfig):
 class DingTalkConfig(BaseChannelConfig):
     client_id: str = ""
     client_secret: str = ""
+    message_type: str = "markdown"
+    card_template_id: str = ""
+    card_template_key: str = "content"
+    robot_code: str = ""
     media_dir: Optional[str] = None
 
 
@@ -217,6 +223,25 @@ class AgentsRunningConfig(BaseModel):
             "Maximum number of reasoning-acting iterations for ReAct agent"
         ),
     )
+
+    token_count_model: str = Field(
+        default="default",
+        description="Model to use for token counting",
+    )
+
+    token_count_estimate_divisor: float = Field(
+        default=3.75,
+        gt=1,
+        description=(
+            "Divisor for character-based token estimation " "(len / divisor)"
+        ),
+    )
+
+    token_count_use_mirror: bool = Field(
+        default=False,
+        description="Whether to use mirror token counting",
+    )
+
     max_input_length: int = Field(
         default=128 * 1024,  # 128K = 131072 tokens
         ge=1000,
@@ -240,17 +265,23 @@ class AgentsRunningConfig(BaseModel):
     )
 
     enable_tool_result_compact: bool = Field(
-        default=False,
+        default=True,
         description="Whether to compact tool result messages in memory",
     )
 
     tool_result_compact_keep_n: int = Field(
-        default=5,
+        default=3,
         ge=1,
         le=10,
         description=(
             "Number of tool result messages to keep in memory when compacting"
         ),
+    )
+
+    history_max_length: int = Field(
+        default=10000,
+        ge=1000,
+        description="Maximum length for /history command output",
     )
 
     @property
@@ -330,6 +361,10 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Heartbeat configuration for this agent",
     )
+    last_dispatch: Optional["LastDispatchConfig"] = Field(
+        default=None,
+        description="Last dispatch target for this agent",
+    )
     running: AgentsRunningConfig = Field(
         default_factory=AgentsRunningConfig,
         description="Runtime configuration",
@@ -371,7 +406,7 @@ class AgentsConfig(BaseModel):
         default_factory=lambda: {
             "default": AgentProfileRef(
                 id="default",
-                workspace_dir="~/.copaw/workspaces/default",
+                workspace_dir=f"{WORKING_DIR}/workspaces/default",
             ),
         },
         description="Agent profile references (ID and workspace path only)",
@@ -390,6 +425,45 @@ class AgentsConfig(BaseModel):
     installed_md_files_language: Optional[str] = None
     system_prompt_files: List[str] = Field(
         default_factory=lambda: ["AGENTS.md", "SOUL.md", "PROFILE.md"],
+    )
+    audio_mode: Literal["auto", "native"] = Field(
+        default="auto",
+        description=(
+            "How to handle incoming audio/voice messages. "
+            '"auto": transcribe if a provider is available, otherwise show '
+            "file-uploaded placeholder; "
+            '"native": send audio blocks directly to the model '
+            "(may need ffmpeg)."
+        ),
+    )
+
+    transcription_provider_type: Literal[
+        "disabled",
+        "whisper_api",
+        "local_whisper",
+    ] = Field(
+        default="disabled",
+        description=(
+            "Transcription backend. "
+            '"disabled": no transcription; '
+            '"whisper_api": remote OpenAI-compatible endpoint; '
+            '"local_whisper": locally installed openai-whisper.'
+        ),
+    )
+    transcription_provider_id: str = Field(
+        default="",
+        description=(
+            "Provider ID for Whisper API transcription. "
+            "Empty = no provider selected. "
+            'Only used when transcription_provider_type is "whisper_api".'
+        ),
+    )
+    transcription_model: str = Field(
+        default="whisper-1",
+        description=(
+            "Model name for Whisper API transcription. "
+            'e.g. "whisper-1", "whisper-large-v3".'
+        ),
     )
 
 
@@ -613,10 +687,53 @@ class ToolGuardConfig(BaseModel):
     disabled_rules: List[str] = Field(default_factory=list)
 
 
+class SkillScannerWhitelistEntry(BaseModel):
+    """A whitelisted skill (identified by name + content hash)."""
+
+    skill_name: str
+    content_hash: str = Field(
+        default="",
+        description="SHA-256 of concatenated file contents at whitelist time. "
+        "Empty string means any content is allowed.",
+    )
+    added_at: str = Field(
+        default="",
+        description="ISO 8601 timestamp when the entry was added.",
+    )
+
+
+class SkillScannerConfig(BaseModel):
+    """Skill scanner settings under ``security.skill_scanner``.
+
+    ``mode`` controls the scanner behavior:
+    * ``"block"`` – scan and block unsafe skills.
+    * ``"warn"``  – scan but only log warnings, do not block (default).
+    * ``"off"``   – disable scanning entirely.
+    """
+
+    mode: Literal["block", "warn", "off"] = Field(
+        default="warn",
+        description="Scanner mode: block, warn, or off.",
+    )
+    timeout: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+        description="Max seconds to wait for a scan to complete.",
+    )
+    whitelist: List[SkillScannerWhitelistEntry] = Field(
+        default_factory=list,
+        description="Skills that bypass security scanning.",
+    )
+
+
 class SecurityConfig(BaseModel):
     """Top-level ``security`` section in config.json."""
 
     tool_guard: ToolGuardConfig = Field(default_factory=ToolGuardConfig)
+    skill_scanner: SkillScannerConfig = Field(
+        default_factory=SkillScannerConfig,
+    )
 
 
 class Config(BaseModel):
@@ -731,6 +848,16 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     with open(agent_config_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
+    # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
+    # This keeps COPAW_WORKING_DIR effective even if existing agent.json
+    # contains older hard-coded paths like "~/.copaw/media".
+    try:
+        from .utils import _normalize_working_dir_bound_paths
+
+        data = _normalize_working_dir_bound_paths(data)
+    except Exception:
+        pass
+
     return AgentProfileConfig(**data)
 
 
@@ -797,7 +924,7 @@ def migrate_legacy_config_to_multi_agent() -> bool:
     legacy_agents = config.agents
 
     # Create default agent workspace
-    default_workspace = Path("~/.copaw/workspaces/default").expanduser()
+    default_workspace = Path(f"{WORKING_DIR}/workspaces/default").expanduser()
     default_workspace.mkdir(parents=True, exist_ok=True)
 
     # Create default agent configuration from legacy settings
@@ -842,8 +969,10 @@ def migrate_legacy_config_to_multi_agent() -> bool:
             indent=2,
         )
 
-    # Migrate existing workspace files to default agent workspace
-    old_workspace = Path("~/.copaw").expanduser()
+    # Migrate existing workspace files from legacy default working dir.
+    # When COPAW_WORKING_DIR is customized, historical data may still exist
+    # under "~/.copaw".
+    old_workspace = Path("~/.copaw").expanduser().resolve()
 
     # Move sessions, memory, and other workspace files
     for item_name in ["sessions", "memory", "jobs.json"]:

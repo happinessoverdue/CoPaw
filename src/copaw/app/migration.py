@@ -15,9 +15,12 @@ from ..config.config import (
     AgentsRunningConfig,
     AgentsLLMRoutingConfig,
 )
+from ..constant import WORKING_DIR
 from ..config.utils import load_config, save_config
 
 logger = logging.getLogger(__name__)
+
+_LEGACY_DEFAULT_WORKING_DIR = Path("~/.copaw").expanduser().resolve()
 
 
 def migrate_legacy_workspace_to_default_agent() -> bool:
@@ -69,7 +72,7 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     legacy_agents = config.agents
 
     # Create default agent workspace
-    default_workspace = Path("~/.copaw/workspaces/default").expanduser()
+    default_workspace = Path(f"{WORKING_DIR}/workspaces/default").expanduser()
     default_workspace.mkdir(parents=True, exist_ok=True)
     logger.info(f"Created default agent workspace: {default_workspace}")
 
@@ -118,8 +121,10 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
         )
     logger.info(f"Created agent config: {agent_config_path}")
 
-    # Migrate existing workspace files to default agent workspace
-    old_workspace = Path("~/.copaw").expanduser()
+    # Migrate existing workspace files from legacy default working dir.
+    # When COPAW_WORKING_DIR is customized, historical data may still exist
+    # under "~/.copaw".
+    old_workspace = _LEGACY_DEFAULT_WORKING_DIR
 
     migrated_items = []
 
@@ -156,13 +161,35 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     )
 
     # Migrate markdown files
-    for md_file in ["AGENTS.md", "SOUL.md", "PROFILE.md", "HEARTBEAT.md"]:
+    for md_file in [
+        "AGENTS.md",
+        "SOUL.md",
+        "PROFILE.md",
+        "HEARTBEAT.md",
+        "MEMORY.md",
+        "BOOTSTRAP.md",
+    ]:
         _migrate_workspace_item(
             old_workspace / md_file,
             default_workspace / md_file,
             md_file,
             migrated_items,
         )
+
+    # Migrate skills directories
+    _migrate_workspace_item(
+        old_workspace / "active_skills",
+        default_workspace / "active_skills",
+        "active_skills",
+        migrated_items,
+    )
+
+    _migrate_workspace_item(
+        old_workspace / "customized_skills",
+        default_workspace / "customized_skills",
+        "customized_skills",
+        migrated_items,
+    )
 
     # Migrate channel-specific configuration files
     _migrate_workspace_item(
@@ -269,7 +296,9 @@ def ensure_default_agent_exists() -> None:
         default_workspace = Path(agent_ref.workspace_dir).expanduser()
         agent_existed = True
     else:
-        default_workspace = Path("~/.copaw/workspaces/default").expanduser()
+        default_workspace = Path(
+            f"{WORKING_DIR}/workspaces/default",
+        ).expanduser()
         agent_existed = False
 
     # Ensure workspace directory exists
