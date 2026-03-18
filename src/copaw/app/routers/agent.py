@@ -381,19 +381,18 @@ async def put_system_prompt_files(
     summary="Get current plan",
     description=(
         "Read current session plan from "
-        "WORKING_DIR/todos/<user_id>/<session_id>/plan.json"
+        "workspace_dir/todos/<session_id>/plan.json"
     ),
 )
 async def get_current_plan(
+    request: Request,
     session_id: str = Query(..., description="Session ID"),
-    user_id: str = Query("default", description="User ID"),
 ) -> PlanReadResponse:
-    """Return current plan content for a session/user."""
+    """Return current plan content for a session (per-agent isolated)."""
+    workspace = await get_agent_for_request(request)
     safe_sid = _sanitize_filename(session_id)
-    safe_uid = _sanitize_filename(user_id)
-    plan_path = (
-        Path(WORKING_DIR) / "todos" / safe_uid / safe_sid / "plan.json"
-    )
+    base_dir = workspace.workspace_dir or Path(WORKING_DIR)
+    plan_path = Path(base_dir) / "todos" / safe_sid / "plan.json"
 
     if not plan_path.exists():
         return PlanReadResponse(

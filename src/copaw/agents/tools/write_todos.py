@@ -4,8 +4,8 @@ Plan management tool inspired by Claude Code's TodoWrite mechanism.
 
 Provides a ``write_todos`` tool that agents can call to create or update
 a structured plan (task list).  The plan is persisted as JSON under
-``WORKING_DIR/todos/<user_id>/<session_id>/plan.json`` so that the
-console front-end can read and display it in real time.
+``workspace_dir/todos/<session_id>/plan.json`` so that the console front-end
+can read and display it in real time.
 """
 import os
 import json
@@ -63,28 +63,21 @@ def _coerce_plan(plan: Any) -> Plan:
 def create_write_todos_tool(env_context_dict: dict[str, Any] | None):
     """Factory: build a ``write_todos`` async tool bound to a session."""
     context = env_context_dict or {}
-    working_dir = str(context.get("working_dir") or WORKING_DIR)
+    working_dir = str( context.get("working_dir") )
     session_id = str(context.get("session_id") or "")
-    user_id = str(context.get("user_id") or "")
     safe_sid = _sanitize_filename(session_id)
-    safe_uid = _sanitize_filename(user_id)
-    storage_dir = os.path.join(working_dir, "todos", safe_uid, safe_sid)
+    storage_dir = os.path.join(working_dir, "todos", safe_sid)
 
     current_plan: Plan | None = None
 
     async def write_todos(plan: Plan) -> ToolResponse:
         """Create or Update a Plan (Task List) / 创建或更新计划（任务清单）
-
-        **重要要求**:
-        - 必须使用这个 `write_todos` 工具来创建或更新计划和任务清单.
-        - 计划的内容**必须使用中文**, 计划名称、任务名称、任务目标等内容都必须
-          使用中文编写(对于特定和专业的术语名词,可以使用英文).
-
-        **什么时候使用这个工具**:
-        - 当你需要创建一个新的计划(任务清单)时, 调用此工具并且所有任务状态
-          设置为 pending.
-        - 在你开始一个任务前(更新该任务状态为 in_progress)
-        - 在你完成一个任务时(更新该任务状态为 complete)
+        当面对复杂的多步骤的任务时, 应该使用这个工具来创建、更新计划和任务清单.
+        **工具使用要求**:
+        - **必须使用中文**, 计划名称、任务名称、任务目标等内容都必须使用中文编写(对于特定和专业的术语名词,可以使用英文).
+        - 当需要创建一个新的计划(任务清单)时, **必须调用此工具并且所有任务状态设置为 pending**
+        - 在开始一个任务前, **必须调用此工具更新该任务状态为 in_progress**
+        - 在完成一个任务时, **必须调用此工具更新该任务状态为 complete**
 
         **应该创建计划的情况**:
         - 多步骤任务：需要 3 个或以上步骤才能完成

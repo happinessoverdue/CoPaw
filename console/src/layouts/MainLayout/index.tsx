@@ -4,6 +4,8 @@ import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
 import ConsoleCronBubble from "../../components/ConsoleCronBubble";
+import TenantUserCard from "../../components/TenantUserCard";
+import GridPawCreditCard from "../../components/GridPawCreditCard";
 import styles from "../index.module.less";
 import Chat from "../../pages/Chat";
 import ChannelsPage from "../../pages/Control/Channels";
@@ -56,6 +58,8 @@ export default function MainLayout() {
 
   return (
     <Layout className={styles.mainLayout}>
+      <TenantUserCard />
+      <GridPawCreditCard />
       <Sidebar selectedKey={selectedKey} />
       <Layout>
         <Header selectedKey={selectedKey} />

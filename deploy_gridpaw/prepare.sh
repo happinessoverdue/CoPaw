@@ -97,11 +97,13 @@ _ensure_buildx_builder() {
 cmd_build_nginx() {
     echo "==> Building nginx image: gridpaw-nginx:latest"
     run docker build -f "${SCRIPT_DIR}/nginx/Dockerfile" -t gridpaw-nginx:latest "${SCRIPT_DIR}/nginx"
+    echo_green "✓ gridpaw-nginx:latest 构建成功"
 }
 
 cmd_build_admin() {
     echo "==> Building admin image: gridpaw-admin:latest"
     run docker build -f "${SCRIPT_DIR}/admin-service/Dockerfile" -t gridpaw-admin:latest "${SCRIPT_DIR}"
+    echo_green "✓ gridpaw-admin:latest 构建成功"
 }
 
 cmd_build_gridpaw() {
@@ -109,6 +111,7 @@ cmd_build_gridpaw() {
     echo "    Dockerfile: ${SCRIPT_DIR}/gridpaw.Dockerfile"
     echo "    Context: ${REPO_ROOT}"
     run docker build -f "${SCRIPT_DIR}/gridpaw.Dockerfile" -t "${TENANT_IMAGE}" "${REPO_ROOT}"
+    echo_green "✓ ${TENANT_IMAGE} 构建成功"
 }
 
 # 跨平台构建：直接输出到 tar，不加载到本地 Docker
@@ -123,6 +126,7 @@ cmd_build_nginx_cross() {
         -t gridpaw-nginx:latest \
         --output "type=docker,dest=${tar_file}" \
         "${SCRIPT_DIR}/nginx"
+    echo_green "✓ gridpaw-nginx:latest (${platform}) 构建成功 -> ${tar_file}"
 }
 
 cmd_build_admin_cross() {
@@ -136,6 +140,7 @@ cmd_build_admin_cross() {
         -t gridpaw-admin:latest \
         --output "type=docker,dest=${tar_file}" \
         "${SCRIPT_DIR}"
+    echo_green "✓ gridpaw-admin:latest (${platform}) 构建成功 -> ${tar_file}"
 }
 
 cmd_build_gridpaw_cross() {
@@ -150,6 +155,7 @@ cmd_build_gridpaw_cross() {
         -t "${TENANT_IMAGE}" \
         --output "type=docker,dest=${tar_file}" \
         "${REPO_ROOT}"
+    echo_green "✓ ${TENANT_IMAGE} (${platform}) 构建成功 -> ${tar_file}"
 }
 
 cmd_build() {

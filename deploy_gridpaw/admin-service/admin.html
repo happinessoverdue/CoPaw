@@ -385,6 +385,14 @@
     flex-shrink: 0;
     margin-left: 0.25rem;
   }
+  .distribute-agent-select-wrap { }
+  .distribute-agent-select-label { display: block; font-size: 0.8125rem; color: #94a3b8; margin-bottom: 0.375rem; }
+  .distribute-agent-mapping-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.25rem; }
+  .distribute-agent-mapping-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+  .distribute-agent-mapping-row input[type=checkbox] { accent-color: #3b82f6; cursor: pointer; }
+  .distribute-agent-mapping-row .agent-src-name { min-width: 5rem; color: #e2e8f0; }
+  .distribute-agent-mapping-row .agent-arrow { color: #64748b; }
+  .distribute-agent-mapping-row select { padding: 0.2rem 0.5rem; font-size: 0.8125rem; background: #1e293b; color: #e2e8f0; border: 1px solid rgba(100,116,139,0.4); border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -636,11 +644,16 @@
         </div>
         <div class="distribute-presets-wrap">
           <label class="distribute-preset-item">
-            <input type="checkbox" id="distributePresetAgentPrompts" value="agent_prompts">
+            <input type="checkbox" id="distributePresetAgentPrompts" value="agent_prompts" onchange="toggleAgentPromptsAgents()">
             <span>智能体提示词</span>
             <span class="distribute-preset-hint">AGENTS.md + PROFILE.md + SOUL.md + MEMORY.md + HEARTBEAT.md</span>
           </label>
         </div>
+      </div>
+      <div id="distributeAgentPromptsAgents" class="distribute-agent-select-wrap" style="display:none;margin-top:0.5rem;padding-left:1.5rem;border-left:2px solid rgba(59,130,246,0.5)">
+        <label class="distribute-agent-select-label">选择来源智能体及目标智能体（可多选，可映射到不同目标）</label>
+        <div id="distributeAgentPromptsAgentList" class="distribute-agent-mapping-list"></div>
+        <div class="distribute-preset-hint">来源 → 目标，未选则默认 default → default</div>
       </div>
     </div>
     <div class="form-group">
@@ -1241,13 +1254,13 @@ async function showEditModal(userId) {
   var dms = ic.default_mounts || [];
   if (dms.length === 0 && data.default_mount_host) {
     dms = [
-      { host: data.default_mount_host, bind: '/app/working', mode: 'rw' },
-      { host: data.default_mount_host ? data.default_mount_host.replace(/\/?$/, '.secret') : '', bind: '/app/working.secret', mode: 'rw' },
+      { host: data.default_mount_host, bind: '/root/.copaw', mode: 'rw' },
+      { host: data.default_mount_host ? data.default_mount_host.replace(/\/?$/, '.secret') : '', bind: '/root/.copaw.secret', mode: 'rw' },
     ];
   }
   if (dms.length === 0) dms = [
-    { host: '', bind: '/app/working', mode: 'rw' },
-    { host: '', bind: '/app/working.secret', mode: 'rw' },
+    { host: '', bind: '/root/.copaw', mode: 'rw' },
+    { host: '', bind: '/root/.copaw.secret', mode: 'rw' },
   ];
   renderMountsListDefault(dms);
   renderMountsList(ic.extra_mounts || data.extra_mounts || []);
@@ -1259,15 +1272,15 @@ function renderMountsListDefault(mounts) {
   const list = document.getElementById('mountsListDefault');
   list.innerHTML = '';
   const arr = mounts && mounts.length ? mounts : [
-    { host: '', bind: '/app/working', mode: 'rw' },
-    { host: '', bind: '/app/working.secret', mode: 'rw' },
+    { host: '', bind: '/root/.copaw', mode: 'rw' },
+    { host: '', bind: '/root/.copaw.secret', mode: 'rw' },
   ];
   arr.forEach(function(m) {
     const row = document.createElement('div');
     row.className = 'mount-row mount-row-fixed';
     row.setAttribute('data-default', 'true');
     var host = m.host || '';
-    var bind = m.bind || '/app/working';
+    var bind = m.bind || '/root/.copaw';
     var mode = m.mode || 'rw';
     row.innerHTML = `
       <input type="text" value="${esc(host)}" data-host readonly>
@@ -1850,6 +1863,8 @@ async function showDistributeModal() {
   document.getElementById('distributePresetLlmConfig').checked = false;
   document.getElementById('distributePresetEnvVars').checked = false;
   document.getElementById('distributePresetAgentPrompts').checked = false;
+  document.getElementById('distributeAgentPromptsAgents').style.display = 'none';
+  document.getElementById('distributeAgentPromptsAgentList').innerHTML = '';
   populateSourceSelect('distributeSource', true);
   document.getElementById('distributeSource').value = '';
   var tl = document.querySelector('#distributeSourcePicker .source-picker-label');
@@ -1897,6 +1912,72 @@ async function onDistributeSourceChange() {
     },
     plugins: ['checkbox']
   });
+  if (document.getElementById('distributePresetAgentPrompts')?.checked) {
+    populateAgentPromptsAgents(sourceId);
+  }
+}
+
+function toggleAgentPromptsAgents() {
+  var cb = document.getElementById('distributePresetAgentPrompts');
+  var wrap = document.getElementById('distributeAgentPromptsAgents');
+  if (cb?.checked) {
+    wrap.style.display = 'block';
+    var sourceId = document.getElementById('distributeSource').value;
+    if (sourceId) populateAgentPromptsAgents(sourceId);
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+
+async function populateAgentPromptsAgents(sourceId) {
+  var listEl = document.getElementById('distributeAgentPromptsAgentList');
+  if (!listEl) return;
+  listEl.innerHTML = '<span style="color:#64748b;font-size:0.8125rem">加载中...</span>';
+  var data = await apiFetch('/tenants/' + encodeURIComponent(sourceId) + '/workspace-agents');
+  listEl.innerHTML = '';
+  if (!data || !data.ok) {
+    listEl.innerHTML = '<span style="color:#f87171;font-size:0.8125rem">加载失败</span>';
+    return;
+  }
+  var ids = data.agent_ids || [];
+  if (ids.length === 0) {
+    listEl.innerHTML = '<span style="color:#94a3b8;font-size:0.8125rem">该租户暂无智能体（workspaces/ 为空）</span>';
+    return;
+  }
+  var opts = ids.map(function(aid) { return '<option value="' + esc(aid) + '">' + esc(aid) + '</option>'; }).join('');
+  ids.forEach(function(aid) {
+    var row = document.createElement('div');
+    row.className = 'distribute-agent-mapping-row';
+    row.innerHTML = '<label style="display:flex;align-items:center;gap:0.25rem;cursor:pointer">' +
+      '<input type="checkbox" class="distribute-agent-cb" data-agent-id="' + esc(aid) + '"' + (aid === 'default' ? ' checked' : '') + '>' +
+      '<span class="agent-src-name">' + esc(aid) + '</span></label>' +
+      '<span class="agent-arrow">→</span>' +
+      '<select class="distribute-agent-target" data-agent-id="' + esc(aid) + '">' + opts + '</select>';
+    var sel = row.querySelector('select');
+    if (sel) sel.value = aid;
+    listEl.appendChild(row);
+  });
+}
+
+function getDistributeAgentIdMapping() {
+  if (!document.getElementById('distributePresetAgentPrompts')?.checked) return {};
+  var mapping = {};
+  var rows = document.querySelectorAll('#distributeAgentPromptsAgentList .distribute-agent-mapping-row');
+  for (var i = 0; i < rows.length; i++) {
+    var cb = rows[i].querySelector('.distribute-agent-cb');
+    var sel = rows[i].querySelector('.distribute-agent-target');
+    if (cb && cb.checked && sel) {
+      var src = cb.getAttribute('data-agent-id');
+      var tgt = sel.value;
+      if (src && tgt) mapping[src] = tgt;
+    }
+  }
+  return mapping;
+}
+
+function getDistributeAgentIds() {
+  var m = getDistributeAgentIdMapping();
+  return Object.keys(m);
 }
 
 function getDistributeSelectedPaths() {
@@ -1942,7 +2023,11 @@ function showDistributeConfirmModal() {
   if (presets.length) desc.push('快捷分发：' + presets.map(function(p){
     if (p === 'llm_config') return '大模型配置';
     if (p === 'env_vars') return '环境变量';
-    if (p === 'agent_prompts') return '智能体提示词';
+    if (p === 'agent_prompts') {
+      var m = getDistributeAgentIdMapping();
+      var parts = Object.keys(m).map(function(k) { return k + '→' + m[k]; });
+      return '智能体提示词' + (parts.length > 0 ? '（' + parts.join('；') + '）' : '');
+    }
     return p;
   }).join('、'));
   if (paths.length) desc.push('树中选择的 ' + paths.length + ' 个文件/目录');
@@ -1969,9 +2054,12 @@ async function doSubmitDistribute() {
   var btn = document.getElementById('btnDistributeConfirmOk');
   setButtonLoading(btn, true, '分发中...');
   try {
+    var agentIdMapping = getDistributeAgentIdMapping();
+    var body = { source_tenant_id: sourceId, tenant_ids: ids, paths: paths, presets: presets };
+    if (presets.includes('agent_prompts') && Object.keys(agentIdMapping).length > 0) body.agent_id_mapping = agentIdMapping;
     var data = await apiFetch('/distribute', {
       method: 'POST',
-      body: JSON.stringify({ source_tenant_id: sourceId, tenant_ids: ids, paths: paths, presets: presets }),
+      body: JSON.stringify(body),
     });
     if (data && data.ok) {
       const results = data.results || [];

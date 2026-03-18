@@ -37,12 +37,18 @@
   }
 }
 
+/* --- GridPaw: 租户面板可见时为 logo 上方留空间 --- */
 .siderTop {
   height: 64px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
-  padding: 0 16px;
   gap: 12px;
+}
+
+:global([data-gridpaw-tenant-panel="visible"]) .siderTop {
+  min-height: 128px;
+  padding-top: 68px;
 }
 
 .logoWrapper {

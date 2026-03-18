@@ -56,19 +56,22 @@ def create_and_start_container(
          且易与宿主机既有服务抢端口。
     extra_volumes: list of {"host": "/host/path", "bind": "/container/path", "mode": "rw"}
     force_recreate: if True, remove existing container and create fresh (to apply new mounts)
-    secret_dir: host path for GridPaw SECRET_DIR ({data_dir}.secret), mounted to /app/working.secret
+    secret_dir: host path for GridPaw SECRET_DIR ({data_dir}.secret), mounted to /root/.copaw.secret
     """
     client = _get_client()
 
-    volumes = {data_dir: {"bind": "/app/working", "mode": "rw"}}
+    # --- GridPaw: 挂载到 /root/.copaw，与 CoPaw 默认 ~/.copaw 一致 ---
+    # 避免官方 workspace 路径硬编码问题，单一路径即可，无需 host_config 双挂载。
+    volumes = {data_dir: {"bind": "/root/.copaw", "mode": "rw"}}
     if secret_dir:
-        volumes[secret_dir] = {"bind": "/app/working.secret", "mode": "rw"}
+        volumes[secret_dir] = {"bind": "/root/.copaw.secret", "mode": "rw"}
     for m in extra_volumes or []:
         host = m.get("host", "").strip()
         bind = m.get("bind", "").strip()
         if host and bind:
             mode = m.get("mode", "rw")
             volumes[host] = {"bind": bind, "mode": mode}
+    # --- GridPaw: end ---
 
     try:
         existing = client.containers.get(container_name)

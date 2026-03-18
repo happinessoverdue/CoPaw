@@ -432,8 +432,8 @@ async def api_get_tenant(user_id: str, request: Request):
     # 优先使用数据库中的值，否则按约定计算
     container_name = tenant.get("container_name") or f"{INSTANCE_PREFIX}{user_id}"
     default_mounts = tenant.get("default_mounts") or [
-        {"host": f"{TENANTS_DATA_BASE_DIR}/{user_id}/working", "bind": "/app/working", "mode": "rw"},
-        {"host": f"{TENANTS_DATA_BASE_DIR}/{user_id}/working.secret", "bind": "/app/working.secret", "mode": "rw"},
+        {"host": f"{TENANTS_DATA_BASE_DIR}/{user_id}/working", "bind": "/root/.copaw", "mode": "rw"},
+        {"host": f"{TENANTS_DATA_BASE_DIR}/{user_id}/working.secret", "bind": "/root/.copaw.secret", "mode": "rw"},
     ]
     default_mount_host = default_mounts[0].get("host", "") if default_mounts else ""
     extra_mounts = tenant.get("extra_mounts", [])
@@ -625,31 +625,38 @@ async def api_start_container(user_id: str, request: Request):
     if denied:
         return denied
 
-    tenant = tenant_db.get_tenant(user_id)
-    if not tenant:
-        return JSONResponse({"ok": False, "message": f"租户 '{user_id}' 不存在"}, status_code=404)
+    try:
+        tenant = tenant_db.get_tenant(user_id)
+        if not tenant:
+            return JSONResponse({"ok": False, "message": f"租户 '{user_id}' 不存在"}, status_code=404)
 
-    container_name = f"{INSTANCE_PREFIX}{user_id}"
-    env = {"COPAW_PORT": str(TENANT_INTERNAL_PORT)}
-    if tenant.get("env"):
-        env.update(tenant["env"])
-    extra_mounts = tenant.get("extra_mounts") or []
+        container_name = f"{INSTANCE_PREFIX}{user_id}"
+        env = {"COPAW_PORT": str(TENANT_INTERNAL_PORT)}
+        if tenant.get("env"):
+            env.update(tenant["env"])
+        extra_mounts = tenant.get("extra_mounts") or []
 
-    _ensure_tenant_dirs(user_id)
-    ok, msg = dm.create_and_start_container(
-        container_name=container_name,
-        image=TENANT_IMAGE,
-        data_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working",
-        port=TENANT_INTERNAL_PORT,
-        network=DOCKER_NETWORK,
-        env=env,
-        extra_volumes=extra_mounts,
-        force_recreate=True,
-        secret_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working.secret",
-    )
-    if ok:
-        return {"ok": True, "message": f"容器 '{container_name}' 已启动"}
-    return JSONResponse({"ok": False, "message": msg}, status_code=400)
+        _ensure_tenant_dirs(user_id)
+        ok, msg = dm.create_and_start_container(
+            container_name=container_name,
+            image=TENANT_IMAGE,
+            data_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working",
+            port=TENANT_INTERNAL_PORT,
+            network=DOCKER_NETWORK,
+            env=env,
+            extra_volumes=extra_mounts,
+            force_recreate=True,
+            secret_dir=f"{TENANTS_DATA_BASE_DIR}/{user_id}/working.secret",
+        )
+        if ok:
+            return {"ok": True, "message": f"容器 '{container_name}' 已启动"}
+        return JSONResponse({"ok": False, "message": msg}, status_code=400)
+    except Exception as e:
+        logger.exception("api_start_container failed for %s", user_id)
+        return JSONResponse(
+            {"ok": False, "message": str(e)},
+            status_code=500,
+        )
 
 
 @app.post("/admin/api/containers/{user_id}/stop")
@@ -821,17 +828,47 @@ async def api_batch_containers(request: Request):
 # ===================================================================
 
 # 快捷分发预设：每个预设对应要分发的相对路径（相对于来源租户根目录）。
+# agent_prompts 需要配合 agent_ids 动态生成，路径为 working/workspaces/{agent_id}/*.md
+_AGENT_PROMPT_FILES = ["AGENTS.md", "PROFILE.md", "SOUL.md", "MEMORY.md", "HEARTBEAT.md"]
+
 PRESET_PATHS = {
     "llm_config": ["working.secret/providers.json"],
     "env_vars": ["working.secret/envs.json"],
-    "agent_prompts": [
-        "working/AGENTS.md",
-        "working/PROFILE.md",
-        "working/SOUL.md",
-        "working/MEMORY.md",
-        "working/HEARTBEAT.md",
-    ],
+    # agent_prompts 由 _build_agent_prompt_paths(agent_ids) 动态生成
 }
+
+
+def _get_workspace_agents(tenant_dir: Path) -> list[str]:
+    """获取租户 working/workspaces/ 下的智能体 ID 列表（子目录名）。"""
+    workspaces_dir = tenant_dir / "working" / "workspaces"
+    if not workspaces_dir.is_dir():
+        return []
+    return sorted(
+        d.name for d in workspaces_dir.iterdir()
+        if d.is_dir() and not d.name.startswith(".")
+    )
+
+
+def _build_agent_prompt_paths(agent_ids: list[str]) -> list[str]:
+    """根据智能体 ID 列表生成提示词文件相对路径（来源=目标，同名）。"""
+    paths: list[str] = []
+    for aid in agent_ids:
+        for fname in _AGENT_PROMPT_FILES:
+            paths.append(f"working/workspaces/{aid}/{fname}")
+    return paths
+
+
+def _build_agent_prompt_path_pairs(
+    agent_id_mapping: dict[str, str],
+) -> list[tuple[str, str]]:
+    """根据 来源agent_id→目标agent_id 映射生成 (src_rel, dst_rel) 对。"""
+    pairs: list[tuple[str, str]] = []
+    for src_aid, dst_aid in agent_id_mapping.items():
+        for fname in _AGENT_PROMPT_FILES:
+            src_rel = f"working/workspaces/{src_aid}/{fname}"
+            dst_rel = f"working/workspaces/{dst_aid}/{fname}"
+            pairs.append((src_rel, dst_rel))
+    return pairs
 
 _IGNORED_NAMES = frozenset({".DS_Store"})
 
@@ -985,6 +1022,25 @@ async def api_groups(request: Request):
 # Tenant file tree API (replaces old templates/tree)
 # ---------------------------------------------------------------------------
 
+@app.get("/admin/api/tenants/{user_id}/workspace-agents")
+async def api_workspace_agents(user_id: str, request: Request):
+    """获取指定租户的智能体 ID 列表（working/workspaces/ 下的子目录名）。用于分发时选择来源智能体。"""
+    denied = _require_admin(request)
+    if denied:
+        return denied
+
+    tenant = tenant_db.get_tenant(user_id)
+    if not tenant:
+        return JSONResponse({"ok": False, "error": f"租户 '{user_id}' 不存在"}, status_code=404)
+
+    tenant_dir = TENANTS_ROOT / user_id
+    if not tenant_dir.is_dir():
+        return {"ok": True, "agent_ids": []}
+
+    agent_ids = _get_workspace_agents(tenant_dir)
+    return {"ok": True, "agent_ids": agent_ids}
+
+
 @app.get("/admin/api/tenants/{user_id}/file-tree")
 async def api_tenant_file_tree(user_id: str, request: Request):
     """获取指定租户数据目录的完整树结构。"""
@@ -1020,6 +1076,9 @@ async def api_distribute(request: Request):
     tenant_ids = body.get("tenant_ids", [])
     paths = list(body.get("paths", []))
     presets = body.get("presets", [])
+    agent_ids = list(body.get("agent_ids", []))
+    # 来源 agent_id → 目标 agent_id，如 {"default":"default","coder":"writer"}，未传则同名
+    agent_id_mapping = body.get("agent_id_mapping") or {}
 
     if not source_tenant_id:
         return JSONResponse({"ok": False, "message": "source_tenant_id 不能为空"}, status_code=400)
@@ -1031,20 +1090,38 @@ async def api_distribute(request: Request):
         return JSONResponse({"ok": False, "message": f"来源租户 '{source_tenant_id}' 的数据目录不存在"}, status_code=400)
 
     preset_paths: list[str] = []
+    path_pairs: list[tuple[str, str]] = []  # (src_rel, dst_rel)，用于 agent_prompts 的映射复制
+
     for preset_id in presets:
         if preset_id in PRESET_PATHS:
-            for rel in PRESET_PATHS[preset_id]:
+            preset_list = PRESET_PATHS[preset_id]
+            for rel in (preset_list or []):
                 if rel not in paths:
                     paths.append(rel)
                 if rel not in preset_paths:
                     preset_paths.append(rel)
+        elif preset_id == "agent_prompts":
+            # 智能体提示词：支持来源→目标映射；未传 mapping 则同名
+            if agent_id_mapping:
+                mapping = agent_id_mapping
+            else:
+                ids = agent_ids if agent_ids else ["default"]
+                mapping = {aid: aid for aid in ids}
+            pairs = _build_agent_prompt_path_pairs(mapping)
+            path_pairs.extend(pairs)
+            for src_rel, _ in pairs:
+                if src_rel not in preset_paths:
+                    preset_paths.append(src_rel)
 
-    if not paths:
+    if not paths and not path_pairs:
         return JSONResponse({"ok": False, "message": "请至少选择一个文件或目录（含快捷分发）"}, status_code=400)
 
     for p in paths:
         if not _is_path_safe(p, source_root):
             return JSONResponse({"ok": False, "message": f"非法路径: {p}"}, status_code=400)
+    for src_rel, dst_rel in path_pairs:
+        if not _is_path_safe(src_rel, source_root) or not _is_path_safe(dst_rel, source_root):
+            return JSONResponse({"ok": False, "message": f"非法路径: {src_rel} -> {dst_rel}"}, status_code=400)
 
     if preset_paths:
         ok_val, err_msg = _validate_preset_files_in_source(preset_paths, source_root)
@@ -1056,8 +1133,8 @@ async def api_distribute(request: Request):
         if uid not in all_tenants:
             return JSONResponse({"ok": False, "message": f"租户 '{uid}' 不存在"}, status_code=400)
 
-    expanded = _expand_paths(paths, source_root)
-    if not expanded:
+    expanded = _expand_paths(paths, source_root) if paths else []
+    if not expanded and not path_pairs:
         return JSONResponse({"ok": False, "message": "选中的路径中无有效文件"}, status_code=400)
 
     results = []
@@ -1077,6 +1154,19 @@ async def api_distribute(request: Request):
                 else:
                     shutil.copytree(src, dst, dirs_exist_ok=True, copy_function=shutil.copy)
                     ok_count += 1
+            except Exception as e:
+                fail_count += 1
+                err_msg = str(e)
+                logger.warning("Distribute failed %s -> %s: %s", src, dst, e)
+        for src_rel, dst_rel in path_pairs:
+            src = source_root / src_rel
+            dst = tenant_dir / dst_rel
+            if not src.exists() or not src.is_file():
+                continue
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(src, dst)
+                ok_count += 1
             except Exception as e:
                 fail_count += 1
                 err_msg = str(e)

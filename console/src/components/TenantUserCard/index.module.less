@@ -1,0 +1,74 @@
+/* --- GridPaw: tenant user card --- */
+.card {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  width: 255px; /* sidebar 275px - 左右各 10px 边距 */
+  box-sizing: border-box;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: rgba(228, 226, 242, 0.58);
+  border: 1px solid rgba(97, 92, 237, 0.32);
+  border-radius: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  color: #615ced;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 4px 20px rgba(97, 92, 237, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.info {
+  flex: 1;
+  line-height: 1.6;
+  min-width: 0;
+}
+
+.nameRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.userName {
+  font-weight: 600;
+  font-size: 14px;
+  color: #4a46b8;
+  font-size: 15px;
+}
+
+.userId {
+  color: #615ced;
+  font-size: 15px;
+}
+
+.instance {
+  color: #7a76f0;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.logoutBtn {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  background: #615ced;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.15s;
+
+  &:hover {
+    background: #504cd4;
+  }
+}
+/* --- GridPaw: end --- */

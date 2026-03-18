@@ -19,6 +19,10 @@ RUN cd /app/console && npm ci --include=dev && npm run build
 FROM agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw:latest
 
 ENV TZ=Asia/Shanghai
+# --- GridPaw: 工作目录与 CoPaw 默认 ~/.copaw 一致，配合挂载 working→/root/.copaw ---
+ENV COPAW_WORKING_DIR=/root/.copaw
+ENV COPAW_SECRET_DIR=/root/.copaw.secret
+# --- GridPaw: end ---
 
 # Available channels for this image (imessage & discord excluded).
 # Override at runtime with -e COPAW_ENABLED_CHANNELS=... if needed.

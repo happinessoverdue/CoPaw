@@ -26,6 +26,10 @@
     "actions": "操作",
     "total": "共 {{count}} 条"
   },
+  "tenantUserCard": {
+    "ariaLabel": "租户身份",
+    "logout": "退出"
+  },
   "nav": {
     "chat": "聊天",
     "control": "控制",

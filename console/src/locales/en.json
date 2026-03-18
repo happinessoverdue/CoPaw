@@ -26,6 +26,10 @@
     "actions": "Actions",
     "total": "Total {{count}}"
   },
+  "tenantUserCard": {
+    "ariaLabel": "Tenant identity",
+    "logout": "Logout"
+  },
   "nav": {
     "chat": "Chat",
     "control": "Control",

@@ -189,8 +189,8 @@ class TenantDB:
         uid = user_id.strip()
         cnt = container_name or (self._instance_prefix + uid)
         dm_list = default_mounts or [
-            {"host": f"{self._tenants_data_base_dir}/{uid}/working", "bind": "/app/working", "mode": "rw"},
-            {"host": f"{self._tenants_data_base_dir}/{uid}/working.secret", "bind": "/app/working.secret", "mode": "rw"},
+            {"host": f"{self._tenants_data_base_dir}/{uid}/working", "bind": "/root/.copaw", "mode": "rw"},
+            {"host": f"{self._tenants_data_base_dir}/{uid}/working.secret", "bind": "/root/.copaw.secret", "mode": "rw"},
         ]
 
         conn = self._get_conn()

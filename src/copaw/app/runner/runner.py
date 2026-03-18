@@ -221,11 +221,7 @@ class AgentRunner(Runner):
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
-                working_dir=(
-                    str(self.workspace_dir)
-                    if self.workspace_dir
-                    else str(WORKING_DIR)
-                ),
+                working_dir=( str(self.workspace_dir) if self.workspace_dir else str(WORKING_DIR) ),
             )
 
             # Get MCP clients from manager (hot-reloadable)
@@ -251,7 +247,8 @@ class AgentRunner(Runner):
                     "session_id": session_id,
                     "user_id": user_id,
                     "channel": channel,
-                    "working_dir": str(WORKING_DIR),
+                    "working_dir": ( str(self.workspace_dir) if self.workspace_dir else str(WORKING_DIR) ),
+                    "agent_id": self.agent_id,
                 },
                 mcp_clients=mcp_clients,
                 memory_manager=self.memory_manager,
