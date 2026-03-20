@@ -95,6 +95,9 @@ CLAUDE.md
 # 定制文档（不跟踪）
 dev_docs/
 
+# deploy_gridpaw_personal 个人版分发包（不跟踪）
+deploy_gridpaw_personal/
+
 # deploy_gridpaw/gridpaw_data 部署模板：目录下所有内容均纳入跟踪
 !deploy_gridpaw/gridpaw_data/**
 # tenant_template 不纳入跟踪（含敏感配置、运行时生成内容等）

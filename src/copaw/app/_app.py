@@ -380,12 +380,13 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         _ = full_path
         return _serve_console_index()
 
+    # SPA fallback: serve index.html for client-side routes (e.g. /chat, /channels).
+    # API routes (/api/*) are matched by their routers first, so they will not
+    # fall through here.
     @app.get("/{full_path:path}")
-    def _console_spa(full_path: str):
-        # GridPaw: api/ routes should 404, not fall through to SPA
+    def _console_spa_fallback(full_path: str):
         if full_path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="API route not found")
+            raise HTTPException(status_code=404, detail="Not Found")
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
             return FileResponse(_CONSOLE_INDEX)
-
         raise HTTPException(status_code=404, detail="Not Found")

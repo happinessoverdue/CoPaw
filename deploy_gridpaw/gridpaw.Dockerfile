@@ -16,11 +16,13 @@ RUN cd /app/console && npm ci --include=dev && npm run build
 # All system packages, Python venv, Chromium, supervisor, entrypoint are
 # already present in the base image — no apt-get needed.
 # -----------------------------------------------------------------------------
-FROM agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw:latest
+FROM agentscope/copaw:pre
 
 ENV TZ=Asia/Shanghai
 # --- GridPaw: 工作目录与 CoPaw 默认 ~/.copaw 一致，配合挂载 working→/root/.copaw ---
 ENV COPAW_WORKING_DIR=/root/.copaw
+# --- GridPaw: 显式设置 WORKSPACE_DIR，不依赖 pre 镜像内部实现 ---
+ENV WORKSPACE_DIR=/app
 ENV COPAW_SECRET_DIR=/root/.copaw.secret
 # --- GridPaw: end ---
 
@@ -37,7 +39,7 @@ COPY src ./src
 # Inject console dist from build stage (repo does not commit dist).
 COPY --from=console-builder /app/console/dist/ ./src/copaw/console/
 # pip only downloads packages not already satisfied in the base venv.
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir -e .
 
 # Re-init working dir to pick up any new default files from this version.
 RUN copaw init --defaults --accept-security

@@ -96,13 +96,13 @@ _ensure_buildx_builder() {
 
 cmd_build_nginx() {
     echo "==> Building nginx image: gridpaw-nginx:latest"
-    run docker build -f "${SCRIPT_DIR}/nginx/Dockerfile" -t gridpaw-nginx:latest "${SCRIPT_DIR}/nginx"
+    run docker build --no-cache -f "${SCRIPT_DIR}/nginx/Dockerfile" -t gridpaw-nginx:latest "${SCRIPT_DIR}/nginx"
     echo_green "✓ gridpaw-nginx:latest 构建成功"
 }
 
 cmd_build_admin() {
     echo "==> Building admin image: gridpaw-admin:latest"
-    run docker build -f "${SCRIPT_DIR}/admin-service/Dockerfile" -t gridpaw-admin:latest "${SCRIPT_DIR}"
+    run docker build --no-cache -f "${SCRIPT_DIR}/admin-service/Dockerfile" -t gridpaw-admin:latest "${SCRIPT_DIR}"
     echo_green "✓ gridpaw-admin:latest 构建成功"
 }
 
@@ -110,7 +110,7 @@ cmd_build_gridpaw() {
     echo "==> Building GridPaw tenant image: ${TENANT_IMAGE}"
     echo "    Dockerfile: ${SCRIPT_DIR}/gridpaw.Dockerfile"
     echo "    Context: ${REPO_ROOT}"
-    run docker build -f "${SCRIPT_DIR}/gridpaw.Dockerfile" -t "${TENANT_IMAGE}" "${REPO_ROOT}"
+    run docker build --no-cache -f "${SCRIPT_DIR}/gridpaw.Dockerfile" -t "${TENANT_IMAGE}" "${REPO_ROOT}"
     echo_green "✓ ${TENANT_IMAGE} 构建成功"
 }
 
@@ -121,6 +121,7 @@ cmd_build_nginx_cross() {
     local tar_file="${out_dir}/gridpaw-nginx.tar"
     echo "==> Building nginx (${platform}) -> ${tar_file}"
     run docker buildx build \
+        --no-cache \
         --platform "${platform}" \
         -f "${SCRIPT_DIR}/nginx/Dockerfile" \
         -t gridpaw-nginx:latest \
@@ -135,6 +136,7 @@ cmd_build_admin_cross() {
     local tar_file="${out_dir}/gridpaw-admin.tar"
     echo "==> Building admin (${platform}) -> ${tar_file}"
     run docker buildx build \
+        --no-cache \
         --platform "${platform}" \
         -f "${SCRIPT_DIR}/admin-service/Dockerfile" \
         -t gridpaw-admin:latest \
@@ -150,6 +152,7 @@ cmd_build_gridpaw_cross() {
     echo "==> Building GridPaw tenant (${platform}) -> ${tar_file}"
     echo "    Image tag in tar: ${TENANT_IMAGE}"
     run docker buildx build \
+        --no-cache \
         --platform "${platform}" \
         -f "${SCRIPT_DIR}/gridpaw.Dockerfile" \
         -t "${TENANT_IMAGE}" \

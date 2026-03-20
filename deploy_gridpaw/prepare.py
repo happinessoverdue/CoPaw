@@ -134,7 +134,7 @@ def _ensure_buildx_builder() -> None:
 def _build_nginx() -> None:
     print("==> Building nginx image: gridpaw-nginx:latest")
     run([
-        "docker", "build",
+        "docker", "build", "--no-cache",
         "-f", str(SCRIPT_DIR / "nginx" / "Dockerfile"),
         "-t", "gridpaw-nginx:latest",
         str(SCRIPT_DIR / "nginx"),
@@ -144,7 +144,7 @@ def _build_nginx() -> None:
 def _build_admin() -> None:
     print("==> Building admin image: gridpaw-admin:latest")
     run([
-        "docker", "build",
+        "docker", "build", "--no-cache",
         "-f", str(SCRIPT_DIR / "admin-service" / "Dockerfile"),
         "-t", "gridpaw-admin:latest",
         str(SCRIPT_DIR),
@@ -157,7 +157,7 @@ def _build_gridpaw() -> None:
     print(f"    Dockerfile: {gridpaw_dockerfile}")
     print(f"    Context: {REPO_ROOT}")
     run([
-        "docker", "build", "-f", str(gridpaw_dockerfile),
+        "docker", "build", "--no-cache", "-f", str(gridpaw_dockerfile),
         "-t", TENANT_IMAGE, str(REPO_ROOT),
     ])
 
@@ -167,6 +167,7 @@ def _build_nginx_cross(platform: str, out_dir: Path) -> None:
     print(f"==> Building nginx ({platform}) -> {tar_file}")
     run([
         "docker", "buildx", "build",
+        "--no-cache",
         "--platform", platform,
         "-f", str(SCRIPT_DIR / "nginx" / "Dockerfile"),
         "-t", "gridpaw-nginx:latest",
@@ -180,6 +181,7 @@ def _build_admin_cross(platform: str, out_dir: Path) -> None:
     print(f"==> Building admin ({platform}) -> {tar_file}")
     run([
         "docker", "buildx", "build",
+        "--no-cache",
         "--platform", platform,
         "-f", str(SCRIPT_DIR / "admin-service" / "Dockerfile"),
         "-t", "gridpaw-admin:latest",
@@ -194,6 +196,7 @@ def _build_gridpaw_cross(platform: str, out_dir: Path) -> None:
     print(f"    Image tag in tar: {TENANT_IMAGE}")
     run([
         "docker", "buildx", "build",
+        "--no-cache",
         "--platform", platform,
         "-f", str(SCRIPT_DIR / "gridpaw.Dockerfile"),
         "-t", TENANT_IMAGE,

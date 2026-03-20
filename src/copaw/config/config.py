@@ -640,6 +640,13 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Get llm token usage",
         ),
+        # --- GridPaw: 计划管理工具 ---
+        "write_todos": BuiltinToolConfig(
+            name="write_todos",
+            enabled=True,
+            description="创建计划(任务清单), 并更新任务清单里的状态, 用于复杂的多步骤任务的管理",
+        ),
+        # --- GridPaw: end ---
     }
 
 
