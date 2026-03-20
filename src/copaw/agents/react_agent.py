@@ -4,6 +4,7 @@
 This module provides the main CoPawAgent class built on ReActAgent,
 with integrated tools, skills, and memory management.
 """
+
 import asyncio
 import logging
 import os
@@ -37,6 +38,8 @@ from .tools import (
     execute_shell_command,
     get_current_time,
     get_token_usage,
+    glob_search,
+    grep_search,
     read_file,
     send_file_to_user,
     set_user_timezone,
@@ -120,20 +123,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Extract configuration from agent_config
         running_config = agent_config.running
-        self._max_input_length = running_config.max_input_length
         self._language = agent_config.language
-
-        # Memory compaction settings from config
-        self._memory_compact_threshold = (
-            running_config.memory_compact_threshold
-        )
-        self._memory_compact_reserve = running_config.memory_compact_reserve
-        self._enable_tool_result_compact = (
-            running_config.enable_tool_result_compact
-        )
-        self._tool_result_compact_keep_n = (
-            running_config.tool_result_compact_keep_n
-        )
 
         # Initialize toolkit with built-in tools
         toolkit = self._create_toolkit(namesake_strategy=namesake_strategy)
@@ -171,7 +161,6 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             memory=self.memory,
             memory_manager=self.memory_manager,
             enable_memory_manager=self._enable_memory_manager,
-            agent_config=agent_config,
         )
 
         # Register hooks
@@ -216,6 +205,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "read_file": read_file,
             "write_file": write_file,
             "edit_file": edit_file,
+            "grep_search": grep_search,
+            "glob_search": glob_search,
             "browser_use": browser_use,
             "desktop_screenshot": desktop_screenshot,
             "view_image": view_image,
@@ -280,10 +271,20 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             else None
         )
 
+        # Check if heartbeat is enabled in agent config
+        heartbeat_enabled = False
+        if (
+            hasattr(self._agent_config, "heartbeat")
+            and self._agent_config.heartbeat is not None
+        ):
+            heartbeat_enabled = self._agent_config.heartbeat.enabled
+
         sys_prompt = build_system_prompt_from_working_dir(
             working_dir=self._workspace_dir,
             agent_id=agent_id,
+            heartbeat_enabled=heartbeat_enabled,
         )
+        logger.debug("System prompt:\n%s", sys_prompt)
         if self._env_context is not None:
             sys_prompt = sys_prompt + "\n\n" + self._env_context
         return sys_prompt
@@ -345,7 +346,6 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         if self._enable_memory_manager and self.memory_manager is not None:
             memory_compact_hook = MemoryCompactionHook(
                 memory_manager=self.memory_manager,
-                agent_config=self._agent_config,
             )
             self.register_instance_hook(
                 hook_type="pre_reasoning",
@@ -535,11 +535,17 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
                 return rebuilt_client
 
+            raw_headers = rebuild_info.get("headers") or {}
+            headers = (
+                {k: os.path.expandvars(v) for k, v in raw_headers.items()}
+                if raw_headers
+                else None
+            )
             rebuilt_client = HttpStatefulClient(
                 name=name,
                 transport=transport,
                 url=rebuild_info.get("url"),
-                headers=rebuild_info.get("headers"),
+                headers=headers,
             )
             setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
             return rebuilt_client
