@@ -16,6 +16,7 @@ import "dayjs/locale/ru";
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import LoginPage from "./pages/Login";
+import GridPawPage from "./pages/GridPaw";
 import { authApi } from "./api/modules/auth";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
 import "./styles/layout.css";
@@ -145,6 +146,24 @@ function AppInner() {
       >
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* --- GridPaw: start --- */}
+          <Route
+            path="/"
+            element={
+              <AuthGuard>
+                <Navigate to="/gridpaw" replace />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/gridpaw/*"
+            element={
+              <AuthGuard>
+                <GridPawPage />
+              </AuthGuard>
+            }
+          />
+          {/* --- GridPaw: end --- */}
           <Route
             path="/*"
             element={
