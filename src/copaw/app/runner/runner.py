@@ -336,10 +336,26 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
+            # --- GridPaw: start ---
+            # Ensure at most one mid-turn session checkpoint per query_handler run.
+            _gridpaw_early_session_saved = False
+            # --- GridPaw: end ---
+
             async for msg, last in stream_printing_messages(
                 agents=[agent],
                 coroutine_task=agent(msgs),
             ):
+                # --- GridPaw: start ---
+                # First stream item: ReActAgent.reply has run memory.add(msg); persist
+                # before yield so mid-turn refresh can see this user turn via GET /chats.
+                if not _gridpaw_early_session_saved:
+                    await self.session.save_session_state(
+                        session_id=session_id,
+                        user_id=user_id,
+                        agent=agent,
+                    )
+                    _gridpaw_early_session_saved = True
+                # --- GridPaw: end ---
                 yield msg, last
 
         except asyncio.CancelledError as exc:

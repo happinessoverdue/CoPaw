@@ -39,6 +39,80 @@ class TaskTracker:
         self._lock = asyncio.Lock()
         self._runs: dict[str, _RunState] = {}
 
+    # --- GridPaw: start ---
+    async def _enqueue_with_backpressure(
+        self,
+        queue: asyncio.Queue,
+        event: str | None,
+    ) -> None:
+        """Put one event into queue with lightweight backpressure waiting."""
+        while True:
+            try:
+                queue.put_nowait(event)
+                return
+            except asyncio.QueueFull:
+                await asyncio.sleep(0.005)
+
+    async def _replay_then_subscribe(
+        self,
+        run_key: str,
+        state: _RunState,
+        queue: asyncio.Queue,
+    ) -> None:
+        """Replay buffered events progressively, then join live broadcast."""
+        try:
+            cursor = 0
+            maxsize = queue.maxsize or _QUEUE_MAX_SIZE
+            high_watermark = max(1, int(maxsize * 0.85))
+
+            while True:
+                # Slow down replay if consumer is lagging.
+                if queue.qsize() >= high_watermark:
+                    await asyncio.sleep(0.005)
+                    continue
+
+                event: str | None = None
+                attach_live = False
+                finished = False
+
+                async with self._lock:
+                    # Always follow the same run object captured at attach-time.
+                    if cursor < len(state.buffer):
+                        event = state.buffer[cursor]
+                        cursor += 1
+                    elif state.task.done():
+                        finished = True
+                    else:
+                        # Caught up to current tail: join live stream atomically.
+                        current = self._runs.get(run_key)
+                        if current is state and queue not in state.queues:
+                            state.queues.append(queue)
+                            attach_live = True
+                        else:
+                            # Run state changed unexpectedly, finish gracefully.
+                            finished = True
+
+                if event is not None:
+                    await self._enqueue_with_backpressure(queue, event)
+                    continue
+
+                if attach_live:
+                    logger.debug(
+                        "reconnect replay caught up; subscribed to live run_key=%s",
+                        run_key,
+                    )
+                    return
+
+                if finished:
+                    await self._enqueue_with_backpressure(queue, _SENTINEL)
+                    return
+
+                await asyncio.sleep(0.005)
+        except Exception:
+            logger.exception("replay task failed run_key=%s", run_key)
+            await self._enqueue_with_backpressure(queue, _SENTINEL)
+    # --- GridPaw: end ---
+
     @property
     def lock(self) -> asyncio.Lock:
         return self._lock
@@ -99,17 +173,18 @@ class TaskTracker:
     async def attach(self, run_key: str) -> asyncio.Queue | None:
         """Attach to an existing run.
 
-        Returns a new queue pre-filled with the event buffer, or ``None``
-        if no run is active for *run_key*.
+        Returns a new queue for reconnect replay + live tail, or ``None`` if
+        no run is active for *run_key*.
         """
         async with self._lock:
             state = self._runs.get(run_key)
             if state is None or state.task.done():
                 return None
             q: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
-            for sse in state.buffer:
-                q.put_nowait(sse)
-            state.queues.append(q)
+            # --- GridPaw: start ---
+            # Reconnect queue replays progressively, then subscribes to live.
+            asyncio.create_task(self._replay_then_subscribe(run_key, state, q))
+            # --- GridPaw: end ---
             return q
 
     async def request_stop(self, run_key: str) -> bool:
@@ -135,9 +210,12 @@ class TaskTracker:
             state = self._runs.get(run_key)
             if state is not None and not state.task.done():
                 q: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
-                for sse in state.buffer:
-                    q.put_nowait(sse)
-                state.queues.append(q)
+                # --- GridPaw: start ---
+                # Keep behavior aligned with reconnect attach path.
+                asyncio.create_task(
+                    self._replay_then_subscribe(run_key, state, q),
+                )
+                # --- GridPaw: end ---
                 return q, False
 
             my_queue: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
