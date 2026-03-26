@@ -105,3 +105,4 @@ deploy_gridpaw/gridpaw_data/admin_data/tenant_template/
 # tenants_data 仅保留目录占位，不跟踪其下文件
 deploy_gridpaw/gridpaw_data/tenants_data/**
 !deploy_gridpaw/gridpaw_data/tenants_data/.gitkeep
+source_init/
