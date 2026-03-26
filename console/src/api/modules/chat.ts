@@ -52,6 +52,11 @@ export const chatApi = {
 
     return url;
   },
+
+  // Backward-compatible alias for legacy callers (e.g. GridPaw pages).
+  fileUrl: (filename: string): string => {
+    return chatApi.filePreviewUrl(filename);
+  },
   listChats: (params?: { user_id?: string; channel?: string }) => {
     const searchParams = new URLSearchParams();
     if (params?.user_id) searchParams.append("user_id", params.user_id);
@@ -93,6 +98,9 @@ export const chatApi = {
     request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
       method: "POST",
     }),
+
+  // Backward-compatible alias for legacy callers.
+  stopConsoleChat: (chatId: string) => chatApi.stopChat(chatId),
 };
 
 export const sessionApi = {

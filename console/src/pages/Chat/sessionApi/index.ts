@@ -70,6 +70,22 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   status?: ChatStatus;
 }
 
+const hasMessages = (messages?: IAgentScopeRuntimeWebUIMessage[]): boolean =>
+  (messages?.length ?? 0) > 0;
+
+const shouldPreferLocalMessages = (
+  localMessages?: IAgentScopeRuntimeWebUIMessage[],
+  remoteMessages?: IAgentScopeRuntimeWebUIMessage[],
+): boolean => {
+  if (!hasMessages(localMessages)) {
+    return false;
+  }
+  if (!hasMessages(remoteMessages)) {
+    return true;
+  }
+  return (remoteMessages?.length ?? 0) < (localMessages?.length ?? 0);
+};
+
 // ---------------------------------------------------------------------------
 // Message conversion helpers: backend flat messages → card-based UI format
 // ---------------------------------------------------------------------------
