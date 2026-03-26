@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Typography, message, Tag } from "antd";
+import { Button, Card, Typography, message, Tag, theme } from "antd";
 import {
   CheckCircleOutlined,
   DownloadOutlined,
@@ -105,6 +105,7 @@ function findFileInfo(data: SendFileRenderProps["data"]): FileInfo | null {
 }
 
 export default function SendFileRender(props: SendFileRenderProps) {
+  const { token: designToken } = theme.useToken();
   const [msgApi, contextHolder] = message.useMessage();
   const [downloading, setDownloading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
@@ -157,10 +158,10 @@ export default function SendFileRender(props: SendFileRenderProps) {
         size="small"
         style={{
           width: "100%",
-          borderRadius: 12,
+          borderRadius: designToken.borderRadiusLG,
           overflow: "hidden",
-          background: "rgba(242, 251, 244, 0.9)",
-          border: "1px solid rgba(116, 176, 122, 0.25)",
+          background: designToken.colorPrimaryBg,
+          border: `1px solid ${designToken.colorPrimaryBorder}`,
         }}
       >
         <div

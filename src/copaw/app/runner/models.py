@@ -52,10 +52,19 @@ class ChatHistory(BaseModel):
     """Complete chat view with spec and state."""
 
     messages: list[Message] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
     status: str = Field(
         default="idle",
         description="Conversation status: idle or running",
     )
+    # --- GridPaw: start --- Expose spec fields so console reconnect can send logical session_id
+    session_id: str = Field(
+        default="",
+        description="Logical session id (same as ChatSpec.session_id); for POST /console/chat",
+    )
+    user_id: str = Field(default="", description="Chat owner user id")
+    channel: str = Field(default="", description="Channel name (e.g. console)")
+    # --- GridPaw: end ---
 
 
 class ChatsFile(BaseModel):

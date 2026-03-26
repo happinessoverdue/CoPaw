@@ -1,0 +1,28 @@
+{
+  "id": "linx2_vllm",
+  "name": "linx2_vllm",
+  "base_url": "http://192.1.103.202:10007/v1",
+  "api_key": " ",
+  "chat_model": "OpenAIChatModel",
+  "models": [],
+  "extra_models": [
+    {
+      "id": "qwen",
+      "name": "qwen"
+    }
+  ],
+  "api_key_prefix": "",
+  "is_local": false,
+  "freeze_url": false,
+  "require_api_key": true,
+  "is_custom": true,
+  "support_model_discovery": false,
+  "generate_kwargs": {
+    "temperature": 1,
+    "extra_body": {
+      "chat_template_kwargs": {
+        "enable_thinking": true
+      }
+    }
+  }
+}

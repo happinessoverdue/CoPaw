@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
+import json
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from agentscope.memory import InMemoryMemory
 
+from ...config.config import load_agent_config
+from ...agents.utils import get_copaw_token_counter
 from .session import SafeJSONSession
 from .manager import ChatManager
 from .models import (
@@ -16,6 +19,101 @@ from .utils import agentscope_msg_to_message
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+
+def _clamp_ratio(value: float) -> float:
+    return max(0.0, min(value, 1.0))
+
+
+async def _build_context_usage_meta(
+    workspace,
+    chat_spec: ChatSpec,
+    state: dict,
+) -> dict:
+    agent_config = load_agent_config(workspace.agent_id)
+    running = agent_config.running
+    token_counter = get_copaw_token_counter(agent_config)
+
+    max_input_tokens = max(int(running.max_input_length or 0), 0)
+    compact_threshold_tokens = max(
+        int(running.memory_compact_threshold or 0),
+        0,
+    )
+    reserve_threshold_tokens = max(
+        int(running.memory_compact_reserve or 0),
+        0,
+    )
+
+    memories = state.get("agent", {}).get("memory", [])
+    memory = InMemoryMemory()
+    if memories:
+        memory.load_state_dict(memories)
+    messages = await memory.get_memory()
+    compressed_summary = (
+        memory.get_compressed_summary()
+        if hasattr(memory, "get_compressed_summary")
+        else ""
+    )
+    serialized_messages = json.dumps(
+        [
+            msg.to_dict() if hasattr(msg, "to_dict") else str(msg)
+            for msg in messages
+        ],
+        ensure_ascii=False,
+    )
+    system_prompt = ""
+    agent_state = state.get("agent", {})
+    if isinstance(agent_state, dict):
+        for key in ("_sys_prompt", "sys_prompt"):
+            value = agent_state.get(key)
+            if isinstance(value, str) and value.strip():
+                system_prompt = value
+                break
+
+    system_prompt_tokens = await token_counter.count(messages=[], text=system_prompt or "")
+    summary_tokens = await token_counter.count(messages=[], text=compressed_summary or "")
+    messages_tokens = await token_counter.count(messages=[], text=serialized_messages)
+    used_tokens = system_prompt_tokens + summary_tokens + messages_tokens
+
+    context_usage = {
+        "session_id": chat_spec.session_id,
+        "user_id": chat_spec.user_id,
+        "used_tokens": used_tokens,
+        "max_input_tokens": max_input_tokens,
+        "compact_threshold_tokens": compact_threshold_tokens,
+        "reserve_threshold_tokens": reserve_threshold_tokens,
+        "system_prompt_tokens": system_prompt_tokens,
+        "summary_tokens": summary_tokens,
+        "messages_tokens": messages_tokens,
+        "message_count": len(messages),
+        "usage_ratio": (
+            _clamp_ratio(used_tokens / max_input_tokens)
+            if max_input_tokens > 0
+            else 0
+        ),
+        "compact_ratio": (
+            _clamp_ratio(used_tokens / compact_threshold_tokens)
+            if compact_threshold_tokens > 0
+            else 0
+        ),
+        "compact_threshold_ratio": (
+            compact_threshold_tokens / max_input_tokens
+            if max_input_tokens > 0
+            else 0
+        ),
+        "has_compressed_summary": bool(compressed_summary),
+    }
+    latest_usage = {
+        "input_tokens": used_tokens,
+        "output_tokens": 0,
+        "source": "estimated_history",
+    }
+
+    return {
+        **(chat_spec.meta or {}),
+        "latest_usage": latest_usage,
+        "context_usage": context_usage,
+    }
 
 
 async def get_workspace(request: Request):
@@ -163,15 +261,28 @@ async def get_chat(
         chat_spec.user_id,
     )
     status = await workspace.task_tracker.get_status(chat_id)
+    # --- GridPaw: start --- Include ChatSpec fields for frontend reconnect (logical session_id)
+    _spec_kwargs = {
+        "session_id": chat_spec.session_id,
+        "user_id": chat_spec.user_id,
+        "channel": chat_spec.channel,
+        "meta": chat_spec.meta or {},
+    }
+    # --- GridPaw: end ---
     if not state:
-        return ChatHistory(messages=[], status=status)
+        return ChatHistory(messages=[], status=status, **_spec_kwargs)
+    _spec_kwargs["meta"] = await _build_context_usage_meta(
+        workspace,
+        chat_spec,
+        state,
+    )
     memories = state.get("agent", {}).get("memory", [])
     memory = InMemoryMemory()
     memory.load_state_dict(memories)
 
     memories = await memory.get_memory()
     messages = agentscope_msg_to_message(memories)
-    return ChatHistory(messages=messages, status=status)
+    return ChatHistory(messages=messages, status=status, **_spec_kwargs)
 
 
 @router.put("/{chat_id}", response_model=ChatSpec)

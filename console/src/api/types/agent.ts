@@ -16,3 +16,20 @@ export interface AgentsRunningConfig {
   tool_result_compact_recent_threshold: number;
   tool_result_compact_retention_days: number;
 }
+
+export interface AgentContextUsage {
+  session_id: string;
+  user_id: string;
+  used_tokens: number;
+  max_input_tokens: number;
+  compact_threshold_tokens: number;
+  reserve_threshold_tokens: number;
+  system_prompt_tokens: number;
+  summary_tokens: number;
+  messages_tokens: number;
+  message_count: number;
+  usage_ratio: number;
+  compact_ratio: number;
+  compact_threshold_ratio: number;
+  has_compressed_summary: boolean;
+}

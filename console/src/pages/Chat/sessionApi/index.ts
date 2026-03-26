@@ -636,16 +636,25 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return fromList;
     }
 
+    const apiSessionId = chatHistory.session_id?.trim();
+    const apiUserId = chatHistory.user_id?.trim();
+    const apiChannel = chatHistory.channel?.trim();
     const session: ExtendedSession = {
       id: sessionId,
       name: fromList?.name || sessionId,
-      sessionId: fromList?.sessionId || sessionId,
-      userId: fromList?.userId || DEFAULT_USER_ID,
-      channel: fromList?.channel || DEFAULT_CHANNEL,
+      sessionId:
+        apiSessionId ||
+        fromList?.sessionId ||
+        (isLocalTimestamp(sessionId) ? sessionId : ""),
+      userId: apiUserId || fromList?.userId || DEFAULT_USER_ID,
+      channel: apiChannel || fromList?.channel || DEFAULT_CHANNEL,
       messages: remoteMessages,
       meta: fromList?.meta || {},
       status: chatHistory.status ?? "idle",
     };
+    if (!session.sessionId) {
+      session.sessionId = sessionId;
+    }
 
     this.cacheSession(session);
     this.updateWindowVariables(session);

@@ -1,5 +1,9 @@
 import { request } from "../request";
-import type { AgentRequest, AgentsRunningConfig } from "../types";
+import type {
+  AgentContextUsage,
+  AgentRequest,
+  AgentsRunningConfig,
+} from "../types";
 
 export interface CurrentPlanResponse {
   exists: boolean;
@@ -53,6 +57,13 @@ export const agentApi = {
     params.set("session_id", sessionId);
     params.set("user_id", userId || "default");
     return request<CurrentPlanResponse>(`/agent/current-plan?${params.toString()}`);
+  },
+
+  getContextUsage: (sessionId: string, userId: string = "default") => {
+    const params = new URLSearchParams();
+    params.set("session_id", sessionId);
+    params.set("user_id", userId || "default");
+    return request<AgentContextUsage>(`/agent/context-usage?${params.toString()}`);
   },
 
   getAudioMode: () => request<{ audio_mode: string }>("/agent/audio-mode"),

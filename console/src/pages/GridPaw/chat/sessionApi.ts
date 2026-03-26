@@ -212,6 +212,7 @@ function chatSpecToSession(chat: ChatSpec): ExtendedSession {
     channel: chat.channel || DEFAULT_CHANNEL,
     messages: [],
     meta: chat.meta || {},
+    realId: chat.id,
   } as ExtendedSession;
 }
 
@@ -266,6 +267,25 @@ class GridPawSessionApi {
     if (session?.id && !isLocalTimestamp(session.id)) return session.id;
     if (!session && !isLocalTimestamp(sessionId)) return sessionId;
     return "";
+  }
+
+  getSessionSnapshot(sessionId?: string | null): ExtendedSession | null {
+    const session = this.findSessionByAnyId(sessionId);
+    return session ? { ...session } : null;
+  }
+
+  /**
+   * POST /console/chat reconnect must use logical ChatSpec.session_id, not chat UUID.
+   */
+  normalizeReconnectSessionId(id: string): string {
+    if (!id) return id;
+    const uuidLike =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    if (!uuidLike) return id;
+    const session = this.findSessionByAnyId(id);
+    const logical = session?.sessionId;
+    if (logical && logical !== id) return logical;
+    return id;
   }
 
   setPreferredSessionId(sessionId?: string | null): void {
@@ -361,6 +381,37 @@ class GridPawSessionApi {
     return this.sessionListRequest;
   }
 
+  /**
+   * Merge server chat list into sessionList so UUID selection has logical session_id
+   * before getChat (GridPaw loadHistorySessions; avoids reconnect using chat UUID).
+   */
+  ingestChatsFromHistory(chats: ChatSpec[]): void {
+    for (const chat of chats) {
+      if (!chat.id || chat.id === "undefined" || chat.id === "null") continue;
+      const row = chatSpecToSession(chat);
+      const i = this.sessionList.findIndex(
+        (s) =>
+          s.id === chat.id ||
+          s.realId === chat.id ||
+          (!!chat.session_id && s.sessionId === chat.session_id),
+      );
+      if (i >= 0) {
+        const prev = this.sessionList[i];
+        this.sessionList[i] = {
+          ...row,
+          id: isLocalTimestamp(prev.id) ? prev.id : row.id,
+          realId: chat.id,
+          messages:
+            prev.messages && prev.messages.length > 0 ? prev.messages : row.messages,
+          meta:
+            prev.meta && Object.keys(prev.meta).length > 0 ? prev.meta : row.meta,
+        } as ExtendedSession;
+      } else {
+        this.sessionList.unshift(row);
+      }
+    }
+  }
+
   async getSession(sessionId: string): Promise<IAgentScopeRuntimeWebUISession> {
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
       return this.createEmptySession(Date.now().toString());
@@ -386,16 +437,28 @@ class GridPawSessionApi {
     }
 
     const chatHistory = await api.getChat(remoteId);
+    const apiSessionId = chatHistory.session_id?.trim();
+    const apiUserId = chatHistory.user_id?.trim();
+    const apiChannel = chatHistory.channel?.trim();
     const session: ExtendedSession = {
       id: existing?.id || sessionId,
       name: existing?.name || DEFAULT_SESSION_NAME,
-      sessionId: existing?.sessionId || sessionId,
-      userId: existing?.userId || DEFAULT_USER_ID,
-      channel: existing?.channel || DEFAULT_CHANNEL,
+      sessionId:
+        apiSessionId ||
+        existing?.sessionId ||
+        (isLocalTimestamp(sessionId) ? sessionId : ""),
+      userId: apiUserId || existing?.userId || DEFAULT_USER_ID,
+      channel: apiChannel || existing?.channel || DEFAULT_CHANNEL,
       messages: convertMessages(chatHistory.messages || []),
-      meta: existing?.meta || {},
+      meta:
+        (chatHistory.meta as Record<string, unknown> | undefined) ||
+        existing?.meta ||
+        {},
       realId: remoteId,
     };
+    if (!session.sessionId) {
+      session.sessionId = sessionId;
+    }
 
     const previousIndex = this.sessionList.findIndex((item) => item.id === session.id);
     if (previousIndex >= 0) {

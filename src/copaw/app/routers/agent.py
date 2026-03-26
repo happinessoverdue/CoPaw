@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from agentscope.memory import InMemoryMemory
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
@@ -25,7 +26,7 @@ from ...constant import WORKING_DIR
 from ..channels.utils import file_url_to_local_path
 
 from ...agents.memory.agent_md_manager import AgentMdManager
-from ...agents.utils import copy_md_files
+from ...agents.utils import copy_md_files, get_copaw_token_counter
 from ..agent_context import get_agent_for_request
 
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
@@ -65,6 +66,84 @@ class MdFileContent(BaseModel):
     """Markdown file content."""
 
     content: str = Field(..., description="File content")
+
+
+class ContextUsageResponse(BaseModel):
+    """Current session context usage estimate."""
+
+    session_id: str = Field(..., description="Logical session id")
+    user_id: str = Field(..., description="User id")
+    used_tokens: int = Field(..., ge=0, description="Estimated used context tokens")
+    max_input_tokens: int = Field(..., ge=0, description="Model max input length")
+    compact_threshold_tokens: int = Field(
+        ...,
+        ge=0,
+        description="Threshold that triggers context compaction",
+    )
+    reserve_threshold_tokens: int = Field(
+        ...,
+        ge=0,
+        description="Reserved tokens kept for future turns",
+    )
+    system_prompt_tokens: int = Field(
+        0,
+        ge=0,
+        description="Estimated system prompt token count",
+    )
+    summary_tokens: int = Field(
+        0,
+        ge=0,
+        description="Estimated compressed summary token count",
+    )
+    messages_tokens: int = Field(
+        0,
+        ge=0,
+        description="Estimated conversation message token count",
+    )
+    message_count: int = Field(0, ge=0, description="Message count in session memory")
+    usage_ratio: float = Field(
+        ...,
+        ge=0,
+        description="used_tokens / max_input_tokens",
+    )
+    compact_ratio: float = Field(
+        ...,
+        ge=0,
+        description="used_tokens / compact_threshold_tokens",
+    )
+    compact_threshold_ratio: float = Field(
+        ...,
+        ge=0,
+        description="compact_threshold_tokens / max_input_tokens",
+    )
+    has_compressed_summary: bool = Field(
+        False,
+        description="Whether session has compressed summary",
+    )
+
+
+def _extract_sys_prompt(state: dict[str, Any], workspace: Any) -> str:
+    """Best-effort extraction of the current agent system prompt."""
+    agent_state = state.get("agent", {}) if isinstance(state, dict) else {}
+    for key in ("_sys_prompt", "sys_prompt"):
+        value = agent_state.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+
+    runner = getattr(workspace, "runner", None)
+    for attr_name in ("agent", "_agent", "react_agent"):
+        runner_agent = getattr(runner, attr_name, None)
+        if not runner_agent:
+            continue
+        for key in ("sys_prompt", "_sys_prompt"):
+            value = getattr(runner_agent, key, "")
+            if isinstance(value, str) and value.strip():
+                return value
+    return ""
+
+
+def _clamp_ratio(value: float) -> float:
+    return max(0.0, min(value, 1.0))
 
 
 @router.get(
@@ -552,6 +631,146 @@ async def put_system_prompt_files(
     asyncio.create_task(reload_in_background())
 
     return files
+
+
+@router.get(
+    "/context-usage",
+    response_model=ContextUsageResponse,
+    summary="Get current session context usage",
+    description=(
+        "Estimate the current session context usage, including "
+        "current token occupancy and compaction thresholds."
+    ),
+)
+async def get_context_usage(
+    request: Request,
+    session_id: str = Query(..., description="Logical session ID"),
+    user_id: str = Query("default", description="User ID"),
+) -> ContextUsageResponse:
+    """Return a best-effort token estimate for the current session context."""
+    workspace = await get_agent_for_request(request)
+    agent_config = load_agent_config(workspace.agent_id)
+    running_config = agent_config.running
+
+    max_input_tokens = max(int(running_config.max_input_length or 0), 0)
+    compact_threshold_tokens = max(
+        int(running_config.memory_compact_threshold or 0),
+        0,
+    )
+    reserve_threshold_tokens = max(
+        int(running_config.memory_compact_reserve or 0),
+        0,
+    )
+
+    empty_response = ContextUsageResponse(
+        session_id=session_id,
+        user_id=user_id,
+        used_tokens=0,
+        max_input_tokens=max_input_tokens,
+        compact_threshold_tokens=compact_threshold_tokens,
+        reserve_threshold_tokens=reserve_threshold_tokens,
+        system_prompt_tokens=0,
+        summary_tokens=0,
+        messages_tokens=0,
+        message_count=0,
+        usage_ratio=0,
+        compact_ratio=0,
+        compact_threshold_ratio=(
+            compact_threshold_tokens / max_input_tokens
+            if max_input_tokens > 0
+            else 0
+        ),
+        has_compressed_summary=False,
+    )
+
+    try:
+        session = workspace.runner.session
+        state = await session.get_session_state_dict(
+            session_id=session_id,
+            user_id=user_id,
+            allow_not_exist=True,
+        )
+        if not state:
+            return empty_response
+
+        token_counter = get_copaw_token_counter(agent_config)
+        memory_state = (
+            state.get("agent", {}).get("memory", [])
+            if isinstance(state.get("agent"), dict)
+            else []
+        )
+        memory = InMemoryMemory()
+        if memory_state:
+            memory.load_state_dict(memory_state)
+
+        messages = await memory.get_memory()
+        serialized_messages = json.dumps(
+            [
+                msg.to_dict() if hasattr(msg, "to_dict") else str(msg)
+                for msg in messages
+            ],
+            ensure_ascii=False,
+        )
+        compressed_summary = (
+            memory.get_compressed_summary()
+            if hasattr(memory, "get_compressed_summary")
+            else ""
+        )
+        sys_prompt = _extract_sys_prompt(state, workspace)
+
+        system_prompt_tokens = await token_counter.count(
+            messages=[],
+            text=sys_prompt or "",
+        )
+        summary_tokens = await token_counter.count(
+            messages=[],
+            text=compressed_summary or "",
+        )
+        messages_tokens = await token_counter.count(
+            messages=[],
+            text=serialized_messages,
+        )
+
+        used_tokens = system_prompt_tokens + summary_tokens + messages_tokens
+        usage_ratio = (
+            _clamp_ratio(used_tokens / max_input_tokens)
+            if max_input_tokens > 0
+            else 0
+        )
+        compact_ratio = (
+            _clamp_ratio(used_tokens / compact_threshold_tokens)
+            if compact_threshold_tokens > 0
+            else 0
+        )
+
+        return ContextUsageResponse(
+            session_id=session_id,
+            user_id=user_id,
+            used_tokens=used_tokens,
+            max_input_tokens=max_input_tokens,
+            compact_threshold_tokens=compact_threshold_tokens,
+            reserve_threshold_tokens=reserve_threshold_tokens,
+            system_prompt_tokens=system_prompt_tokens,
+            summary_tokens=summary_tokens,
+            messages_tokens=messages_tokens,
+            message_count=len(messages),
+            usage_ratio=usage_ratio,
+            compact_ratio=compact_ratio,
+            compact_threshold_ratio=(
+                compact_threshold_tokens / max_input_tokens
+                if max_input_tokens > 0
+                else 0
+            ),
+            has_compressed_summary=bool(compressed_summary),
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Failed to estimate context usage for session %s: %s",
+            session_id,
+            exc,
+            exc_info=True,
+        )
+        return empty_response
 
 
 @router.get(

@@ -1,0 +1,116 @@
+.contextUsageBadge {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 6;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.contextUsageBadgeLoading {
+  opacity: 0.66;
+}
+
+.contextUsageSvg {
+  width: 28px;
+  height: 28px;
+  transform: rotate(-90deg);
+}
+
+.contextUsageTrack {
+  stroke: rgba(15, 23, 42, 0.14);
+  stroke-width: 8;
+}
+
+.contextUsageProgress {
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.contextUsageMarker {
+  stroke: rgba(220, 38, 38, 0.95);
+  stroke-width: 3.8;
+  stroke-linecap: butt;
+}
+
+.contextUsageTooltipOverlay {
+  :global(.ant-tooltip-inner) {
+    padding: 10px 12px;
+    border-radius: 14px;
+    min-width: 164px;
+  }
+}
+
+.contextUsageTooltipOverlayDefault {
+  :global(.ant-tooltip-inner) {
+    box-shadow: 0 10px 24px rgba(18, 48, 23, 0.14);
+    border: 1px solid rgba(114, 185, 121, 0.22);
+  }
+}
+
+.contextUsageTooltipOverlayAzure {
+  :global(.ant-tooltip-inner) {
+    box-shadow: 0 10px 24px rgba(16, 49, 77, 0.14);
+    border: 1px solid rgba(123, 190, 224, 0.24);
+  }
+}
+
+.contextUsageTooltip {
+  --context-tooltip-text: #21402b;
+  --context-tooltip-title: rgba(43, 78, 50, 0.68);
+  --context-tooltip-subtitle: rgba(43, 78, 50, 0.76);
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--context-tooltip-text);
+}
+
+.contextUsageTooltipDefault {
+  --context-tooltip-text: #21402b;
+  --context-tooltip-title: rgba(43, 78, 50, 0.68);
+  --context-tooltip-subtitle: rgba(43, 78, 50, 0.76);
+}
+
+.contextUsageTooltipAzure {
+  --context-tooltip-text: #1a3951;
+  --context-tooltip-title: rgba(37, 75, 106, 0.66);
+  --context-tooltip-subtitle: rgba(37, 75, 106, 0.76);
+}
+
+.contextUsageTooltipTitle {
+  color: var(--context-tooltip-title);
+  font-size: 12px;
+}
+
+.contextUsageTooltipSubtitle {
+  color: var(--context-tooltip-subtitle);
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.contextUsageTooltipUsage {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+@keyframes pulseGlow {
+  0%,
+  100% {
+    box-shadow:
+      0 10px 24px rgba(3, 29, 9, 0.12),
+      0 0 0 1px rgba(13, 95, 29, 0.08);
+  }
+
+  50% {
+    box-shadow:
+      0 12px 28px rgba(3, 29, 9, 0.18),
+      0 0 0 1px rgba(13, 95, 29, 0.18);
+  }
+}

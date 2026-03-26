@@ -119,7 +119,9 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
             The number of tokens, guaranteed to be at least the
             estimated minimum.
         """
-        if text:
+        if text is not None:
+            if text == "":
+                return 0
             if self._tokenizer_available:
                 try:
                     token_ids = self.tokenizer.encode(text)

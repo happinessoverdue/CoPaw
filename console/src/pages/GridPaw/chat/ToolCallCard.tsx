@@ -6,9 +6,11 @@ import {
   useState,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { ToolCall } from "@agentscope-ai/chat";
+import { theme } from "antd";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
 import styles from "./toolCallCard.module.less";
@@ -20,6 +22,8 @@ type ToolCallCardProps = {
   loading?: boolean;
   defaultOpen?: boolean;
   extraContent?: ReactNode;
+  /** 为 true 时折叠条使用主题主色；特殊工具或命中输出检测时由上层传入 */
+  themeHighlight?: boolean;
 };
 
 function parseMaybeJsonString(value: string): unknown {
@@ -66,7 +70,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function formatOutputCharCount(count: number): string {
+  const compact = count / 1_000;
+  const digits = compact >= 10 ? 0 : 1;
+  return `${compact.toFixed(digits)}k`;
+}
+
 export default function ToolCallCard(props: ToolCallCardProps) {
+  const { token: designToken } = theme.useToken();
   const [viewerOpen, setViewerOpen] = useState(false);
   const [x, setX] = useState(140);
   const [y, setY] = useState(100);
@@ -91,6 +102,16 @@ export default function ToolCallCard(props: ToolCallCardProps) {
 
   const inputText = useMemo(() => stringifyContent(props.input), [props.input]);
   const outputText = useMemo(() => stringifyContent(props.output), [props.output]);
+  const outputCharCountLabel = useMemo(() => formatOutputCharCount(outputText.length), [outputText]);
+  const displayTitle = useMemo<ReactNode>(() => {
+    const baseTitle = props.title?.trim();
+    return (
+      <span className={styles.toolTitleWrap}>
+        {baseTitle ? <span className={styles.toolTitleText}>{baseTitle}</span> : null}
+        <span className={styles.outputCharCountBadge}>{outputCharCountLabel}</span>
+      </span>
+    );
+  }, [outputCharCountLabel, props.title]);
 
   useEffect(() => {
     return () => {
@@ -238,13 +259,33 @@ export default function ToolCallCard(props: ToolCallCardProps) {
     [height, width, x, y],
   );
 
+  const themeHighlight = props.themeHighlight === true;
+
   return (
     <>
-      <div onClickCapture={handleToolCardClickCapture} style={{ width: "100%" }}>
+      <div
+        className={`${styles.toolCallShell}${themeHighlight ? ` ${styles.toolCallShellThemed}` : ""}`}
+        onClickCapture={handleToolCardClickCapture}
+        style={
+          {
+            width: "100%",
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            ...(themeHighlight
+              ? {
+                  "--gp-toolcall-surface": designToken.colorPrimaryBg,
+                  "--gp-toolcall-border": designToken.colorPrimaryBorder,
+                  "--gp-toolcall-icon": designToken.colorPrimary,
+                }
+              : {}),
+          } as CSSProperties
+        }
+      >
         <ToolCall
           loading={props.loading}
           defaultOpen={props.defaultOpen ?? false}
-          title={props.title}
+          title={displayTitle as unknown as string}
           input={props.input as string | Record<string, unknown>}
           output={props.output as string | Record<string, unknown>}
         />

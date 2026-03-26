@@ -152,3 +152,56 @@
   bottom: -6px;
   cursor: nesw-resize;
 }
+
+/* --- GridPaw: start --- 仅 themeHighlight 时，OperateCard 与主色 token 对齐 */
+.toolCallShell {
+  /* 默认不覆盖库样式；--gp-toolcall-* 仅在有 .toolCallShellThemed 时由内联注入 */
+  position: relative;
+}
+
+.toolTitleWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.toolTitleText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outputCharCountBadge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gp-primary, #0d5f1d) 8%, #ffffff 92%);
+  border: 1px solid color-mix(in srgb, var(--gp-primary, #0d5f1d) 12%, #d9e4d7);
+  color: color-mix(in srgb, var(--gp-primary, #0d5f1d) 72%, #334155);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.toolCallShell.toolCallShellThemed :global([class$="-operate-card"]) {
+  background-color: var(--gp-toolcall-surface) !important;
+  border: 1px solid var(--gp-toolcall-border);
+  box-sizing: border-box;
+}
+
+.toolCallShell.toolCallShellThemed .outputCharCountBadge {
+  background: color-mix(in srgb, var(--gp-toolcall-surface) 88%, #ffffff);
+  border-color: var(--gp-toolcall-border);
+  color: var(--gp-toolcall-icon);
+}
+
+.toolCallShell.toolCallShellThemed :global([class*="operate-card-header-icon"]) {
+  color: var(--gp-toolcall-icon);
+}
+/* --- GridPaw: end --- */

@@ -1,6 +1,7 @@
 import {
   AgentScopeRuntimeWebUI,
   type IAgentScopeRuntimeWebUIOptions,
+  type IAgentScopeRuntimeWebUIMessage,
   type IAgentScopeRuntimeWebUIRef,
   type IAgentScopeRuntimeWebUISession,
   type IAgentScopeRuntimeWebUISessionAPI,
@@ -18,10 +19,12 @@ import {
 import { Brain, Camera, ChevronLeft, Paperclip, X } from "lucide-react";
 import { getApiToken, getApiUrl } from "../../api/config";
 import type { ChatHistory } from "../../api/types/chat";
+import type { AgentContextUsage } from "../../api/types";
 import { agentApi, type CurrentPlanResponse } from "../../api/modules/agent";
 import { chatApi } from "../../api/modules/chat";
 import { providerApi } from "../../api/modules/provider";
 import gridPawSessionApi from "./chat/sessionApi";
+import ContextUsageRing from "./chat/ContextUsageRing";
 import SendFileWithDefault from "./chat/SendFileWithDefault";
 import UniversalToolRenderer from "./chat/UniversalToolRenderer";
 import { GRIDPAW_PRESET_VIEWS } from "./presetViews";
@@ -36,6 +39,11 @@ type SessionMeta = {
   channel?: string;
 };
 
+type ResponseUsage = {
+  input_tokens?: number;
+  output_tokens?: number;
+};
+
 type InputChunk = {
   session?: SessionMeta;
   content?: unknown;
@@ -47,6 +55,7 @@ type HistorySessionItem = {
   sessionId: string;
   title: string;
   updatedAt: string | null;
+  latestUsage?: ResponseUsage | null;
 };
 
 type PlanTask = {
@@ -243,6 +252,84 @@ function deriveAgentRuntimeStatus(history: ChatHistory): {
   return { label: "正在思考", busy: true };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object";
+}
+
+function readUsageValue(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function extractLatestUsageFromUiMessages(
+  messages: IAgentScopeRuntimeWebUIMessage[] | undefined,
+): ResponseUsage | null {
+  if (!messages?.length) return null;
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index] as {
+      cards?: Array<{ code?: string; data?: unknown }>;
+    };
+    const responseCard = message.cards?.find(
+      (card) => card.code === "AgentScopeRuntimeResponseCard",
+    );
+    if (!responseCard || !isRecord(responseCard.data)) continue;
+    const usage = responseCard.data.usage;
+    if (!isRecord(usage)) continue;
+    const inputTokens = readUsageValue(usage.input_tokens);
+    const outputTokens = readUsageValue(usage.output_tokens);
+    if (inputTokens <= 0 && outputTokens <= 0) continue;
+    return {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+    };
+  }
+
+  return null;
+}
+
+function buildContextUsageFromResponseUsage(
+  usage: ResponseUsage,
+  maxInputTokens: number,
+  compactThresholdRatio: number,
+  reserveThresholdRatio: number,
+): AgentContextUsage {
+  const usedTokens = Math.max(readUsageValue(usage.input_tokens), 0);
+  const compactThresholdTokens = Math.max(
+    Math.floor(maxInputTokens * compactThresholdRatio),
+    0,
+  );
+  const reserveThresholdTokens = Math.max(
+    Math.floor(maxInputTokens * reserveThresholdRatio),
+    0,
+  );
+
+  return {
+    session_id: "",
+    user_id: "",
+    used_tokens: usedTokens,
+    max_input_tokens: maxInputTokens,
+    compact_threshold_tokens: compactThresholdTokens,
+    reserve_threshold_tokens: reserveThresholdTokens,
+    system_prompt_tokens: 0,
+    summary_tokens: 0,
+    messages_tokens: usedTokens,
+    message_count: 0,
+    usage_ratio: maxInputTokens > 0 ? Math.min(usedTokens / maxInputTokens, 1) : 0,
+    compact_ratio:
+      compactThresholdTokens > 0
+        ? Math.min(usedTokens / compactThresholdTokens, 1)
+        : 0,
+    compact_threshold_ratio:
+      maxInputTokens > 0 ? compactThresholdTokens / maxInputTokens : 0,
+    has_compressed_summary: false,
+  };
+}
+
 function toImageFiles(files: File[]): File[] {
   return files.filter((file) => file.type.startsWith("image/"));
 }
@@ -293,6 +380,11 @@ export default function GridPawPage() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const [agentStatus, setAgentStatus] = useState("空闲中：就绪");
   const [agentBusy, setAgentBusy] = useState(false);
+  const [contextUsage, setContextUsage] = useState<AgentContextUsage | null>(null);
+  const [contextUsageLoading, setContextUsageLoading] = useState(false);
+  const [maxInputTokens, setMaxInputTokens] = useState(0);
+  const [compactThresholdRatio, setCompactThresholdRatio] = useState(0);
+  const [reserveThresholdRatio, setReserveThresholdRatio] = useState(0);
   const [activeHistorySessionId, setActiveHistorySessionId] = useState("");
   const activeHistorySessionIdRef = useRef(activeHistorySessionId);
   const [chatInstanceKey, setChatInstanceKey] = useState(0);
@@ -312,6 +404,7 @@ export default function GridPawPage() {
   const chatDockRef = useRef<HTMLElement | null>(null);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const reconnectTriggeredForRef = useRef<string | null>(null);
+  const latestUsagePersistedRef = useRef("");
 
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme);
@@ -352,19 +445,127 @@ export default function GridPawPage() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void agentApi
+      .getAgentRunningConfig()
+      .then((config) => {
+        if (cancelled) return;
+        setMaxInputTokens(config.max_input_length ?? 0);
+        setCompactThresholdRatio(config.memory_compact_ratio ?? 0);
+        setReserveThresholdRatio(config.memory_reserve_ratio ?? 0);
+      })
+      .catch((error) => {
+        console.warn("Failed to load agent running config", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const applyUsageToContextRing = useCallback(
+    (usage: ResponseUsage | null, sessionId?: string, userId?: string) => {
+      if (!usage || maxInputTokens <= 0) return false;
+      const nextUsage = buildContextUsageFromResponseUsage(
+        usage,
+        maxInputTokens,
+        compactThresholdRatio,
+        reserveThresholdRatio,
+      );
+      nextUsage.session_id = sessionId || "";
+      nextUsage.user_id = userId || "";
+      setContextUsage(nextUsage);
+      return true;
+    },
+    [compactThresholdRatio, maxInputTokens, reserveThresholdRatio],
+  );
+
+  const persistLatestUsageForSession = useCallback(
+    async (sessionId: string, usage: ResponseUsage) => {
+      const chatId = gridPawSessionApi.resolveChatId(sessionId);
+      const session = gridPawSessionApi.getSessionSnapshot(sessionId);
+      if (!chatId || !session) return;
+
+      const cacheKey = `${chatId}:${readUsageValue(usage.input_tokens)}:${readUsageValue(
+        usage.output_tokens,
+      )}`;
+      if (latestUsagePersistedRef.current === cacheKey) return;
+      latestUsagePersistedRef.current = cacheKey;
+
+      try {
+        await chatApi.updateChat(chatId, {
+          id: chatId,
+          name: session.name || "New GridPaw Chat",
+          session_id: session.sessionId || sessionId,
+          user_id: session.userId || "default",
+          channel: session.channel || "console",
+          meta: {
+            ...(session.meta || {}),
+            latest_usage: {
+              input_tokens: readUsageValue(usage.input_tokens),
+              output_tokens: readUsageValue(usage.output_tokens),
+            },
+          },
+        });
+      } catch (error) {
+        console.warn("Failed to persist latest response usage", error);
+      }
+    },
+    [],
+  );
+
   const runtimeSessionApi = useMemo(
     () =>
       ({
         getSessionList: () => gridPawSessionApi.getSessionList(),
-        getSession: (sessionId: string) => gridPawSessionApi.getSession(sessionId),
+        getSession: async (sessionId: string) => {
+          const session = await gridPawSessionApi.getSession(sessionId);
+          const usage = extractLatestUsageFromUiMessages(session.messages);
+          const sessionMeta = (session as unknown as { meta?: Record<string, unknown> }).meta;
+          if (usage) {
+            applyUsageToContextRing(
+              usage,
+              (session as { sessionId?: string }).sessionId || sessionId,
+              (session as { userId?: string }).userId || "default",
+            );
+          } else if (isRecord(sessionMeta) && isRecord(sessionMeta.latest_usage)) {
+            const latestUsage = sessionMeta.latest_usage as Record<string, unknown>;
+            applyUsageToContextRing(
+              {
+                input_tokens: readUsageValue(latestUsage.input_tokens),
+                output_tokens: readUsageValue(latestUsage.output_tokens),
+              },
+              (session as { sessionId?: string }).sessionId || sessionId,
+              (session as { userId?: string }).userId || "default",
+            );
+          }
+          return session;
+        },
         createSession: (session: Partial<IAgentScopeRuntimeWebUISession>) =>
           gridPawSessionApi.createSession(session),
-        updateSession: (session: Partial<IAgentScopeRuntimeWebUISession>) =>
-          gridPawSessionApi.updateSession(session),
+        updateSession: async (session: Partial<IAgentScopeRuntimeWebUISession>) => {
+          const next = await gridPawSessionApi.updateSession(session);
+          const usage = extractLatestUsageFromUiMessages(session.messages);
+          const sessionId =
+            (session as { sessionId?: string }).sessionId ||
+            session.id ||
+            window.currentSessionId ||
+            "";
+          const userId =
+            (session as { userId?: string }).userId || window.currentUserId || "default";
+          if (usage) {
+            applyUsageToContextRing(usage, sessionId, userId);
+            if (sessionId) {
+              void persistLatestUsageForSession(sessionId, usage);
+            }
+          }
+          return next;
+        },
         removeSession: (session: Partial<IAgentScopeRuntimeWebUISession>) =>
           gridPawSessionApi.removeSession(session),
       }) as IAgentScopeRuntimeWebUISessionAPI,
-    [],
+    [applyUsageToContextRing, persistLatestUsageForSession],
   );
 
   const customToolRenderConfig = useMemo(
@@ -385,14 +586,23 @@ export default function GridPawPage() {
 
   const loadHistorySessions = useCallback(async () => {
     const chats = await chatApi.listChats();
+    gridPawSessionApi.ingestChatsFromHistory(chats);
     const mapped = [...chats].reverse().map((chat) => {
       const named = (chat as { name?: string }).name;
       const title = named || `Session ${chat.session_id.slice(-8) || chat.id.slice(-8)}`;
+      const meta = isRecord(chat.meta) ? chat.meta : {};
+      const latestUsage = isRecord(meta.latest_usage)
+        ? {
+            input_tokens: readUsageValue(meta.latest_usage.input_tokens),
+            output_tokens: readUsageValue(meta.latest_usage.output_tokens),
+          }
+        : null;
       return {
         id: chat.id,
         sessionId: chat.session_id,
         title,
         updatedAt: chat.updated_at,
+        latestUsage,
       };
     });
     setHistorySessions(mapped);
@@ -747,8 +957,10 @@ export default function GridPawPage() {
       if (selectedAgent) headers["X-Agent-Id"] = selectedAgent;
 
       if (shouldReconnect) {
-        const reconnectSessionId =
+        const rawReconnect =
           data.session_id || window.currentSessionId || "";
+        const reconnectSessionId =
+          gridPawSessionApi.normalizeReconnectSessionId(rawReconnect);
         if (reconnectSessionId) {
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
@@ -1090,13 +1302,20 @@ export default function GridPawPage() {
       (item) => item.id === sessionId || item.sessionId === sessionId,
     );
     const resolvedSessionId = matched?.sessionId || sessionId;
+    if (matched?.latestUsage) {
+      applyUsageToContextRing(
+        matched.latestUsage,
+        resolvedSessionId,
+        window.currentUserId || "default",
+      );
+    }
     setActiveHistorySessionId(sessionId);
     gridPawSessionApi.setPreferredSessionId(sessionId);
     window.currentSessionId = resolvedSessionId;
     setDockCollapsed(false);
     setHistoryMenuOpenId("");
     setChatInstanceKey((prev) => prev + 1);
-  }, [historySessions]);
+  }, [applyUsageToContextRing, historySessions]);
 
   const handleDeleteHistorySession = useCallback(
     async (session: HistorySessionItem) => {
@@ -1196,6 +1415,49 @@ export default function GridPawPage() {
       .length ?? 0;
   const progressPercent =
     totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
+
+  const loadContextUsage = useCallback(async () => {
+    const sessionId = window.currentSessionId || activeHistorySessionId;
+    const userId = window.currentUserId || "default";
+
+    if (!sessionId) {
+      setContextUsage(null);
+      return;
+    }
+
+    const sessionUsage = gridPawSessionApi
+      .getSessionSnapshot(sessionId)
+      ?.meta?.latest_usage;
+    if (isRecord(sessionUsage)) {
+      const applied = applyUsageToContextRing(
+        {
+          input_tokens: readUsageValue(sessionUsage.input_tokens),
+          output_tokens: readUsageValue(sessionUsage.output_tokens),
+        },
+        sessionId,
+        userId,
+      );
+      if (applied) return;
+    }
+
+    setContextUsageLoading(true);
+    try {
+      const usage = await agentApi.getContextUsage(sessionId, userId);
+      setContextUsage(usage);
+    } catch (error) {
+      console.warn("Failed to load GridPaw context usage", error);
+    } finally {
+      setContextUsageLoading(false);
+    }
+  }, [activeHistorySessionId, applyUsageToContextRing]);
+
+  useEffect(() => {
+    void loadContextUsage();
+    const timer = window.setInterval(() => {
+      void loadContextUsage();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [chatInstanceKey, loadContextUsage]);
 
   return (
     <div
@@ -1422,6 +1684,11 @@ export default function GridPawPage() {
               ref={chatRef}
               key={chatInstanceKey}
               options={runtimeOptions}
+            />
+            <ContextUsageRing
+              usage={contextUsage}
+              loading={contextUsageLoading}
+              theme={theme === "azure" ? "azure" : "default"}
             />
             <button
               type="button"

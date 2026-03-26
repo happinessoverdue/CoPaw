@@ -1,6 +1,8 @@
 import type { FC } from "react";
 import SendFileRender from "./SendFileRender";
 import ToolCallCard from "./ToolCallCard";
+import { useLogGridPawToolCall } from "./gridPawToolCallDebug";
+import { shouldUseThemeHighlightForToolCall } from "./toolThemeHighlight";
 
 interface SendFileWithDefaultProps {
   data: {
@@ -27,6 +29,10 @@ const SendFileWithDefault: FC<SendFileWithDefaultProps> = ({ data }) => {
   const input = first?.data?.arguments ?? "";
   const output = second?.data?.output ?? "";
 
+  useLogGridPawToolCall(toolName, data);
+
+  const themeHighlight = shouldUseThemeHighlightForToolCall(toolName, output);
+
   return (
     <ToolCallCard
       loading={loading}
@@ -34,6 +40,7 @@ const SendFileWithDefault: FC<SendFileWithDefaultProps> = ({ data }) => {
       title={title === "undefined" ? "" : title}
       input={input}
       output={output}
+      themeHighlight={themeHighlight}
       extraContent={<SendFileRender data={data} />}
     />
   );
