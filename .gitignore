@@ -106,3 +106,9 @@ deploy_gridpaw/gridpaw_data/admin_data/tenant_template/
 deploy_gridpaw/gridpaw_data/tenants_data/**
 !deploy_gridpaw/gridpaw_data/tenants_data/.gitkeep
 source_init/
+# Hypothesis test cache
+.hypothesis/
+src/.hypothesis/
+
+# Kiro IDE
+.kiro/

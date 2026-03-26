@@ -15,7 +15,6 @@ from typing import Any, AsyncGenerator, Callable, Coroutine
 
 logger = logging.getLogger(__name__)
 
-_QUEUE_MAX_SIZE = 4096
 _SENTINEL = None
 
 
@@ -32,86 +31,13 @@ class TaskTracker:
     """Per-workspace tracker: run_key -> RunState.
 
     All mutations to _runs under _lock. Producer broadcasts under lock.
-    Dead queues pruned when full.
+    Subscribers use unbounded per-connection queues; disconnect removes them
+    via :meth:`detach_subscriber`.
     """
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._runs: dict[str, _RunState] = {}
-
-    # --- GridPaw: start ---
-    async def _enqueue_with_backpressure(
-        self,
-        queue: asyncio.Queue,
-        event: str | None,
-    ) -> None:
-        """Put one event into queue with lightweight backpressure waiting."""
-        while True:
-            try:
-                queue.put_nowait(event)
-                return
-            except asyncio.QueueFull:
-                await asyncio.sleep(0.005)
-
-    async def _replay_then_subscribe(
-        self,
-        run_key: str,
-        state: _RunState,
-        queue: asyncio.Queue,
-    ) -> None:
-        """Replay buffered events progressively, then join live broadcast."""
-        try:
-            cursor = 0
-            maxsize = queue.maxsize or _QUEUE_MAX_SIZE
-            high_watermark = max(1, int(maxsize * 0.85))
-
-            while True:
-                # Slow down replay if consumer is lagging.
-                if queue.qsize() >= high_watermark:
-                    await asyncio.sleep(0.005)
-                    continue
-
-                event: str | None = None
-                attach_live = False
-                finished = False
-
-                async with self._lock:
-                    # Always follow the same run object captured at attach-time.
-                    if cursor < len(state.buffer):
-                        event = state.buffer[cursor]
-                        cursor += 1
-                    elif state.task.done():
-                        finished = True
-                    else:
-                        # Caught up to current tail: join live stream atomically.
-                        current = self._runs.get(run_key)
-                        if current is state and queue not in state.queues:
-                            state.queues.append(queue)
-                            attach_live = True
-                        else:
-                            # Run state changed unexpectedly, finish gracefully.
-                            finished = True
-
-                if event is not None:
-                    await self._enqueue_with_backpressure(queue, event)
-                    continue
-
-                if attach_live:
-                    logger.debug(
-                        "reconnect replay caught up; subscribed to live run_key=%s",
-                        run_key,
-                    )
-                    return
-
-                if finished:
-                    await self._enqueue_with_backpressure(queue, _SENTINEL)
-                    return
-
-                await asyncio.sleep(0.005)
-        except Exception:
-            logger.exception("replay task failed run_key=%s", run_key)
-            await self._enqueue_with_backpressure(queue, _SENTINEL)
-    # --- GridPaw: end ---
 
     @property
     def lock(self) -> asyncio.Lock:
@@ -173,19 +99,36 @@ class TaskTracker:
     async def attach(self, run_key: str) -> asyncio.Queue | None:
         """Attach to an existing run.
 
-        Returns a new queue for reconnect replay + live tail, or ``None`` if
-        no run is active for *run_key*.
+        Returns a new queue pre-filled with the event buffer, or ``None``
+        if no run is active for *run_key*.
         """
         async with self._lock:
             state = self._runs.get(run_key)
             if state is None or state.task.done():
                 return None
-            q: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
-            # --- GridPaw: start ---
-            # Reconnect queue replays progressively, then subscribes to live.
-            asyncio.create_task(self._replay_then_subscribe(run_key, state, q))
-            # --- GridPaw: end ---
+            q: asyncio.Queue = asyncio.Queue()
+            for sse in state.buffer:
+                q.put_nowait(sse)
+            state.queues.append(q)
             return q
+
+    async def detach_subscriber(
+        self,
+        run_key: str,
+        queue: asyncio.Queue,
+    ) -> None:
+        """Remove *queue* from *run_key*'s subscriber list.
+
+        Idempotent if the run ended or *queue* was already removed.
+        """
+        async with self._lock:
+            state = self._runs.get(run_key)
+            if state is None:
+                return
+            try:
+                state.queues.remove(queue)
+            except ValueError:
+                pass
 
     async def request_stop(self, run_key: str) -> bool:
         """Cancel the run. Returns ``True`` if it was running."""
@@ -209,16 +152,13 @@ class TaskTracker:
         async with self._lock:
             state = self._runs.get(run_key)
             if state is not None and not state.task.done():
-                q: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
-                # --- GridPaw: start ---
-                # Keep behavior aligned with reconnect attach path.
-                asyncio.create_task(
-                    self._replay_then_subscribe(run_key, state, q),
-                )
-                # --- GridPaw: end ---
+                q: asyncio.Queue = asyncio.Queue()
+                for sse in state.buffer:
+                    q.put_nowait(sse)
+                state.queues.append(q)
                 return q, False
 
-            my_queue: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
+            my_queue: asyncio.Queue = asyncio.Queue()
             run = _RunState(
                 task=asyncio.Future(),  # placeholder, replaced below
                 queues=[my_queue],
@@ -236,19 +176,8 @@ class TaskTracker:
                             return
                         async with tracker.lock:
                             run.buffer.append(sse)
-                            alive: list[asyncio.Queue] = []
                             for q in run.queues:
-                                try:
-                                    q.put_nowait(sse)
-                                    alive.append(q)
-                                except asyncio.QueueFull:
-                                    logger.warning(
-                                        "dropping subscriber queue (full) "
-                                        "run_key=%s",
-                                        run_key,
-                                    )
-                            # Prune dead queues (full = client not reading)
-                            run.queues = alive
+                                q.put_nowait(sse)
                 except asyncio.CancelledError:
                     logger.debug("run cancelled run_key=%s", run_key)
                 except Exception:
@@ -262,19 +191,13 @@ class TaskTracker:
                         async with tracker.lock:
                             run.buffer.append(err_sse)
                             for q in run.queues:
-                                try:
-                                    q.put_nowait(err_sse)
-                                except asyncio.QueueFull:
-                                    pass
+                                q.put_nowait(err_sse)
                 finally:
                     tracker = tracker_ref()
                     if tracker is not None:
                         async with tracker.lock:
                             for q in run.queues:
-                                try:
-                                    q.put_nowait(_SENTINEL)
-                                except asyncio.QueueFull:
-                                    pass
+                                q.put_nowait(_SENTINEL)
                             # pylint: disable=protected-access
                             tracker._runs.pop(
                                 run_key,
@@ -284,16 +207,24 @@ class TaskTracker:
             run.task = asyncio.create_task(_producer())
             return my_queue, True
 
-    @staticmethod
     async def stream_from_queue(
+        self,
         queue: asyncio.Queue,
+        run_key: str,
     ) -> AsyncGenerator[str, None]:
-        """Yield SSE strings from *queue* until the sentinel ``None``."""
-        while True:
-            try:
-                event = await queue.get()
-                if event is _SENTINEL:
+        """Yield SSE strings from *queue* until the sentinel ``None``.
+
+        Always detaches *queue* from *run_key* when this stream ends or is
+        closed (including client disconnect), so reconnects do not leak queues.
+        """
+        try:
+            while True:
+                try:
+                    event = await queue.get()
+                    if event is _SENTINEL:
+                        break
+                    yield event
+                except asyncio.CancelledError:
                     break
-                yield event
-            except asyncio.CancelledError:
-                break
+        finally:
+            await self.detach_subscriber(run_key, queue)
